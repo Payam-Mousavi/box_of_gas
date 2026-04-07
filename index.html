@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Box of Gas — Maxwell's Demon</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Courier New', monospace;
+    background: #1a1a2e;
+    color: #e0e0e0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: 16px;
+  }
+  h1 {
+    font-size: 18px;
+    margin-bottom: 10px;
+    color: #a0c4ff;
+  }
+  .main {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+  }
+  .sim-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  canvas {
+    border: 1px solid #334;
+    border-radius: 4px;
+    background: #0d0d1a;
+  }
+  #simCanvas { cursor: crosshair; }
+  .controls {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 6px;
+    max-width: 940px;
+  }
+  .controls label {
+    font-size: 11px;
+    color: #8899aa;
+  }
+  .controls input[type="range"] {
+    width: 70px;
+    vertical-align: middle;
+  }
+  .controls span.val {
+    font-size: 11px;
+    color: #a0c4ff;
+    min-width: 30px;
+    display: inline-block;
+  }
+  .controls select {
+    background: #334;
+    color: #a0c4ff;
+    border: 1px solid #556;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-family: inherit;
+    font-size: 11px;
+  }
+  button {
+    background: #334;
+    color: #a0c4ff;
+    border: 1px solid #556;
+    padding: 4px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 11px;
+  }
+  button:hover { background: #445; }
+  .stats {
+    font-size: 11px;
+    color: #8899aa;
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .stats .warn { color: #e76f51; }
+  .stats .ok { color: #2a9d8f; }
+  .side-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .panel-label {
+    font-size: 10px;
+    color: #667;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 2px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Box of Gas</h1>
+
+<div class="controls">
+  <label>N:
+    <input type="range" id="sliderN" min="50" max="2000" value="500" step="50">
+    <span class="val" id="valN">500</span>
+  </label>
+  <label>T:
+    <input type="range" id="sliderT" min="0.1" max="5" value="1" step="0.1">
+    <span class="val" id="valT">1.0</span>
+  </label>
+  <label>Radius:
+    <input type="range" id="sliderR" min="0.2" max="1.5" value="0.5" step="0.1">
+    <span class="val" id="valR">0.5</span>
+  </label>
+  <label>Door:
+    <input type="range" id="sliderDoor" min="0" max="100" value="30" step="5">
+    <span class="val" id="valDoor">30%</span>
+  </label>
+  <label>Demon:
+    <select id="selectDemon">
+      <option value="none">None</option>
+      <option value="classical-fixed">Classical (fixed)</option>
+      <option value="classical-adaptive">Classical (adaptive)</option>
+      <option value="local">Local</option>
+    </select>
+  </label>
+  <label id="labelLocalR" style="display:none;">r/L:
+    <input type="range" id="sliderLocalR" min="0.02" max="1.0" value="0.1" step="0.02">
+    <span class="val" id="valLocalR">0.10</span>
+  </label>
+  <button id="btnStartPause">Start</button>
+  <button id="btnReset">Reset</button>
+</div>
+
+<div class="main">
+  <div class="sim-panel">
+    <canvas id="simCanvas" width="600" height="600"></canvas>
+    <div class="stats">
+      <span>T<sub>L</sub>: <span id="statTL">—</span></span>
+      <span>T<sub>R</sub>: <span id="statTR">—</span></span>
+      <span>N<sub>L</sub>: <span id="statNL">—</span></span>
+      <span>N<sub>R</sub>: <span id="statNR">—</span></span>
+      <span>Drift: <span id="statDrift">—</span></span>
+      <span>Bits: <span id="statBits">—</span></span>
+      <span>FPS: <span id="statFPS">—</span></span>
+      <span>t: <span id="statTime">—</span></span>
+    </div>
+  </div>
+  <div class="side-panel">
+    <div>
+      <div class="panel-label">Speed Distribution</div>
+      <canvas id="histCanvas" width="300" height="180"></canvas>
+    </div>
+    <div>
+      <div class="panel-label">&Delta;T Over Time</div>
+      <canvas id="dtCanvas" width="300" height="150"></canvas>
+    </div>
+    <div>
+      <div class="panel-label">Energy Over Time</div>
+      <canvas id="energyCanvas" width="300" height="130"></canvas>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// Constants & Config
+// ============================================================
+const BOX_W = 100;
+const BOX_H = 100;
+const PARTITION_X = BOX_W / 2;
+const SIM_CANVAS_W = 600;
+const SIM_CANVAS_H = 600;
+const SCALE = SIM_CANVAS_W / BOX_W;
+
+// ============================================================
+// Simulation State
+// ============================================================
+let N, T, particleRadius;
+let doorFraction = 0.3;     // door width as fraction of BOX_H
+let demonType = 'none';     // 'none', 'classical-fixed', 'classical-adaptive', 'local'
+let localRadiusFrac = 0.1;  // local demon radius as fraction of BOX_W
+
+let x, y, vx, vy;           // Float64Arrays
+let cellSize, nCellsX, nCellsY;
+let cells;
+let dt = 0.02;
+let simTime = 0;
+let initialKE = 0;
+let initialMeanSpeed = 0;   // for classical fixed-threshold demon
+let totalBits = 0;          // cumulative information cost
+let running = false;
+let animId = null;
+
+// Measurement history
+let keHistory = [];
+let dtHistory = [];          // ΔT over time
+const HISTORY_MAX = 500;
+
+// FPS
+let frameCount = 0;
+let lastFpsTime = performance.now();
+let currentFps = 0;
+
+// ============================================================
+// Box-Muller normal random
+// ============================================================
+function randn() {
+  let u, v, s;
+  do {
+    u = Math.random() * 2 - 1;
+    v = Math.random() * 2 - 1;
+    s = u * u + v * v;
+  } while (s >= 1 || s === 0);
+  return u * Math.sqrt(-2 * Math.log(s) / s);
+}
+
+// ============================================================
+// Initialization
+// ============================================================
+function init(nParticles, temperature, radius) {
+  N = nParticles;
+  T = temperature;
+  particleRadius = radius;
+
+  const maxDt = 0.2 * particleRadius / (3 * Math.sqrt(T));
+  dt = Math.min(0.02, maxDt);
+
+  x = new Float64Array(N);
+  y = new Float64Array(N);
+  vx = new Float64Array(N);
+  vy = new Float64Array(N);
+
+  cellSize = Math.max(2 * particleRadius, 1.0);
+  nCellsX = Math.ceil(BOX_W / cellSize);
+  nCellsY = Math.ceil(BOX_H / cellSize);
+
+  // Place particles without overlap
+  const minDist = 2 * particleRadius;
+  const minDist2 = minDist * minDist;
+  const margin = particleRadius;
+  let placed = 0;
+  let attempts = 0;
+  const maxAttempts = N * 1000;
+
+  const placeCellSize = minDist;
+  const placeNX = Math.ceil(BOX_W / placeCellSize);
+  const placeNY = Math.ceil(BOX_H / placeCellSize);
+  const placeGrid = new Array(placeNX * placeNY);
+  for (let i = 0; i < placeGrid.length; i++) placeGrid[i] = [];
+
+  while (placed < N && attempts < maxAttempts) {
+    const px = margin + Math.random() * (BOX_W - 2 * margin);
+    const py = margin + Math.random() * (BOX_H - 2 * margin);
+
+    const ci = Math.floor(px / placeCellSize);
+    const cj = Math.floor(py / placeCellSize);
+    let overlap = false;
+
+    outer:
+    for (let di = -1; di <= 1; di++) {
+      for (let dj = -1; dj <= 1; dj++) {
+        const ni = ci + di;
+        const nj = cj + dj;
+        if (ni < 0 || ni >= placeNX || nj < 0 || nj >= placeNY) continue;
+        const bucket = placeGrid[ni * placeNY + nj];
+        for (let k = 0; k < bucket.length; k++) {
+          const idx = bucket[k];
+          const ddx = px - x[idx];
+          const ddy = py - y[idx];
+          if (ddx * ddx + ddy * ddy < minDist2) {
+            overlap = true;
+            break outer;
+          }
+        }
+      }
+    }
+
+    if (!overlap) {
+      x[placed] = px;
+      y[placed] = py;
+      placeGrid[ci * placeNY + cj].push(placed);
+      placed++;
+    }
+    attempts++;
+  }
+
+  if (placed < N) {
+    console.warn(`Only placed ${placed}/${N} particles. Reduce N or radius.`);
+    N = placed;
+  }
+
+  // Initialize velocities from Maxwell-Boltzmann
+  const sigma = Math.sqrt(T);
+  let sumVx = 0, sumVy = 0;
+  for (let i = 0; i < N; i++) {
+    vx[i] = sigma * randn();
+    vy[i] = sigma * randn();
+    sumVx += vx[i];
+    sumVy += vy[i];
+  }
+  // Remove net momentum
+  const avgVx = sumVx / N;
+  const avgVy = sumVy / N;
+  for (let i = 0; i < N; i++) {
+    vx[i] -= avgVx;
+    vy[i] -= avgVy;
+  }
+
+  // Compute initial mean speed (for classical fixed demon)
+  let sumSpeed = 0;
+  for (let i = 0; i < N; i++) {
+    sumSpeed += Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]);
+  }
+  initialMeanSpeed = sumSpeed / N;
+
+  simTime = 0;
+  totalBits = 0;
+  initialKE = computeKE();
+  keHistory = [];
+  dtHistory = [];
+}
+
+// ============================================================
+// Compute total kinetic energy
+// ============================================================
+function computeKE() {
+  let ke = 0;
+  for (let i = 0; i < N; i++) {
+    ke += vx[i] * vx[i] + vy[i] * vy[i];
+  }
+  return 0.5 * ke;
+}
+
+// ============================================================
+// Compute temperature on each side
+// ============================================================
+function computeSideTemps() {
+  let keL = 0, keR = 0, nL = 0, nR = 0;
+  for (let i = 0; i < N; i++) {
+    const ke = 0.5 * (vx[i] * vx[i] + vy[i] * vy[i]);
+    if (x[i] < PARTITION_X) {
+      keL += ke;
+      nL++;
+    } else {
+      keR += ke;
+      nR++;
+    }
+  }
+  // 2D: <KE> = k_B T per particle (2 degrees of freedom, each 0.5 k_B T)
+  const tL = nL > 0 ? keL / nL : 0;
+  const tR = nR > 0 ? keR / nR : 0;
+  return { tL, tR, nL, nR };
+}
+
+// ============================================================
+// Compute current global mean speed
+// ============================================================
+function computeMeanSpeed() {
+  let sum = 0;
+  for (let i = 0; i < N; i++) {
+    sum += Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]);
+  }
+  return sum / N;
+}
+
+// ============================================================
+// Build cell list
+// ============================================================
+function buildCellList() {
+  if (!cells || cells.length !== nCellsX * nCellsY) {
+    cells = new Array(nCellsX * nCellsY);
+    for (let i = 0; i < cells.length; i++) cells[i] = [];
+  } else {
+    for (let i = 0; i < cells.length; i++) cells[i].length = 0;
+  }
+  for (let i = 0; i < N; i++) {
+    const ci = Math.min(Math.floor(x[i] / cellSize), nCellsX - 1);
+    const cj = Math.min(Math.floor(y[i] / cellSize), nCellsY - 1);
+    cells[ci * nCellsY + cj].push(i);
+  }
+}
+
+// ============================================================
+// Elastic collision between two equal-mass particles
+// ============================================================
+function resolveCollision(i, j) {
+  const dx = x[j] - x[i];
+  const dy = y[j] - y[i];
+  const dist2 = dx * dx + dy * dy;
+  const minDist = 2 * particleRadius;
+
+  if (dist2 >= minDist * minDist || dist2 === 0) return;
+
+  const dist = Math.sqrt(dist2);
+  const nx = dx / dist;
+  const ny = dy / dist;
+
+  const dvx = vx[i] - vx[j];
+  const dvy = vy[i] - vy[j];
+  const dvn = dvx * nx + dvy * ny;
+
+  if (dvn <= 0) return;
+
+  vx[i] -= dvn * nx;
+  vy[i] -= dvn * ny;
+  vx[j] += dvn * nx;
+  vy[j] += dvn * ny;
+
+  const overlap = minDist - dist;
+  const sep = overlap * 0.5 + 0.001;
+  x[i] -= sep * nx;
+  y[i] -= sep * ny;
+  x[j] += sep * nx;
+  y[j] += sep * ny;
+}
+
+// ============================================================
+// Detect and resolve particle-particle collisions
+// ============================================================
+function handleCollisions() {
+  buildCellList();
+
+  for (let ci = 0; ci < nCellsX; ci++) {
+    for (let cj = 0; cj < nCellsY; cj++) {
+      const cellIdx = ci * nCellsY + cj;
+      const bucket = cells[cellIdx];
+
+      for (let a = 0; a < bucket.length; a++) {
+        for (let b = a + 1; b < bucket.length; b++) {
+          resolveCollision(bucket[a], bucket[b]);
+        }
+      }
+
+      const neighbors = [
+        [ci + 1, cj],
+        [ci + 1, cj + 1],
+        [ci, cj + 1],
+        [ci - 1, cj + 1]
+      ];
+
+      for (const [ni, nj] of neighbors) {
+        if (ni < 0 || ni >= nCellsX || nj < 0 || nj >= nCellsY) continue;
+        const neighborBucket = cells[ni * nCellsY + nj];
+        for (let a = 0; a < bucket.length; a++) {
+          for (let b = 0; b < neighborBucket.length; b++) {
+            resolveCollision(bucket[a], neighborBucket[b]);
+          }
+        }
+      }
+    }
+  }
+}
+
+// ============================================================
+// Door policy — should this particle pass through?
+// ============================================================
+function doorPolicy(i) {
+  if (demonType === 'none') return true;
+
+  const speed = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]);
+  const onLeft = x[i] < PARTITION_X;
+
+  if (demonType === 'classical-fixed') {
+    // Fixed threshold: pass if fast (going right) or slow (going left)
+    // Bidirectional: fast particles should end up on right, slow on left
+    const threshold = initialMeanSpeed;
+    totalBits += Math.log2(N);
+    if (onLeft) return speed > threshold;   // fast → go right
+    else        return speed < threshold;   // slow → go left
+  }
+
+  if (demonType === 'classical-adaptive') {
+    const threshold = computeMeanSpeed();
+    totalBits += Math.log2(N);
+    if (onLeft) return speed > threshold;
+    else        return speed < threshold;
+  }
+
+  if (demonType === 'local') {
+    const r = localRadiusFrac * BOX_W;
+    const r2 = r * r;
+    let sumSpeed = 0;
+    let count = 0;
+
+    // Find same-side neighbors moving toward the door
+    for (let j = 0; j < N; j++) {
+      if (j === i) continue;
+      const jOnLeft = x[j] < PARTITION_X;
+      if (jOnLeft !== onLeft) continue; // same-side only
+
+      // Must be moving toward the door
+      if (onLeft && vx[j] <= 0) continue;
+      if (!onLeft && vx[j] >= 0) continue;
+
+      const dx = x[j] - x[i];
+      const dy = y[j] - y[i];
+      if (dx * dx + dy * dy <= r2) {
+        sumSpeed += Math.sqrt(vx[j] * vx[j] + vy[j] * vy[j]);
+        count++;
+      }
+    }
+
+    // Log bits: log2(k+1) where k = neighbors polled
+    totalBits += Math.log2(count + 1);
+
+    // Empty neighbor set → reject
+    if (count === 0) return false;
+
+    const meanSpeed = sumSpeed / count;
+    if (onLeft) return speed > meanSpeed;   // fast → go right
+    else        return speed < meanSpeed;   // slow → go left
+  }
+
+  return true;
+}
+
+// ============================================================
+// Wall and partition collisions
+// ============================================================
+function handleWalls() {
+  const doorHalf = (doorFraction * BOX_H) / 2;
+  const doorYMin = BOX_H / 2 - doorHalf;
+  const doorYMax = BOX_H / 2 + doorHalf;
+
+  for (let i = 0; i < N; i++) {
+    // Outer walls
+    if (x[i] < particleRadius) {
+      x[i] = particleRadius;
+      vx[i] = Math.abs(vx[i]);
+    }
+    if (x[i] > BOX_W - particleRadius) {
+      x[i] = BOX_W - particleRadius;
+      vx[i] = -Math.abs(vx[i]);
+    }
+    if (y[i] < particleRadius) {
+      y[i] = particleRadius;
+      vy[i] = Math.abs(vy[i]);
+    }
+    if (y[i] > BOX_H - particleRadius) {
+      y[i] = BOX_H - particleRadius;
+      vy[i] = -Math.abs(vy[i]);
+    }
+
+    // Partition at x = PARTITION_X
+    // Check if particle is crossing or overlapping the partition
+    const distToPartition = Math.abs(x[i] - PARTITION_X);
+    if (distToPartition < particleRadius) {
+      // Is the particle in the door region?
+      const inDoor = y[i] >= doorYMin && y[i] <= doorYMax;
+
+      if (inDoor) {
+        // Consult the door policy
+        if (doorPolicy(i)) {
+          // Let it pass — do nothing
+        } else {
+          // Reject: reflect off partition
+          if (x[i] < PARTITION_X) {
+            x[i] = PARTITION_X - particleRadius;
+            vx[i] = -Math.abs(vx[i]);
+          } else {
+            x[i] = PARTITION_X + particleRadius;
+            vx[i] = Math.abs(vx[i]);
+          }
+        }
+      } else {
+        // Solid wall: reflect
+        if (x[i] < PARTITION_X) {
+          x[i] = PARTITION_X - particleRadius;
+          vx[i] = -Math.abs(vx[i]);
+        } else {
+          x[i] = PARTITION_X + particleRadius;
+          vx[i] = Math.abs(vx[i]);
+        }
+      }
+    }
+  }
+}
+
+// ============================================================
+// Simulation step
+// ============================================================
+function step() {
+  for (let i = 0; i < N; i++) {
+    x[i] += vx[i] * dt;
+    y[i] += vy[i] * dt;
+  }
+
+  handleWalls();
+  handleCollisions();
+
+  simTime += dt;
+
+  // Record measurements periodically
+  if (keHistory.length === 0 || simTime - keHistory[keHistory.length - 1][0] > 0.1) {
+    const ke = computeKE();
+    keHistory.push([simTime, ke]);
+    if (keHistory.length > HISTORY_MAX) keHistory.shift();
+
+    const { tL, tR } = computeSideTemps();
+    dtHistory.push([simTime, tR - tL]);
+    if (dtHistory.length > HISTORY_MAX) dtHistory.shift();
+  }
+}
+
+// ============================================================
+// Rendering
+// ============================================================
+const simCanvas = document.getElementById('simCanvas');
+const simCtx = simCanvas.getContext('2d');
+const histCanvas = document.getElementById('histCanvas');
+const histCtx = histCanvas.getContext('2d');
+const dtCanvas = document.getElementById('dtCanvas');
+const dtCtx = dtCanvas.getContext('2d');
+const energyCanvas = document.getElementById('energyCanvas');
+const energyCtx = energyCanvas.getContext('2d');
+
+function speedColor(speed, maxSpeed) {
+  const t = Math.min(speed / maxSpeed, 1);
+  if (t < 0.5) {
+    const s = t * 2;
+    return `rgb(${Math.round(80 + 175 * s)},${Math.round(80 + 175 * s)},255)`;
+  } else {
+    const s = (t - 0.5) * 2;
+    return `rgb(255,${Math.round(255 - 200 * s)},${Math.round(255 - 200 * s)})`;
+  }
+}
+
+function renderSim() {
+  simCtx.clearRect(0, 0, SIM_CANVAS_W, SIM_CANVAS_H);
+
+  const maxSpeed = 3 * Math.sqrt(T);
+  const r = Math.max(particleRadius * SCALE, 1.5);
+
+  for (let i = 0; i < N; i++) {
+    const speed = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]);
+    simCtx.beginPath();
+    simCtx.arc(x[i] * SCALE, (BOX_H - y[i]) * SCALE, r, 0, 2 * Math.PI);
+    simCtx.fillStyle = speedColor(speed, maxSpeed);
+    simCtx.fill();
+  }
+
+  // Draw partition: solid wall segments + door gap
+  const partPx = PARTITION_X * SCALE;
+  const doorHalf = (doorFraction * BOX_H) / 2;
+  const doorYMin = BOX_H / 2 - doorHalf;
+  const doorYMax = BOX_H / 2 + doorHalf;
+  // Canvas Y is flipped
+  const doorTopPx = (BOX_H - doorYMax) * SCALE;
+  const doorBotPx = (BOX_H - doorYMin) * SCALE;
+
+  simCtx.strokeStyle = '#8899aa';
+  simCtx.lineWidth = 2;
+  // Top wall segment (above door)
+  simCtx.beginPath();
+  simCtx.moveTo(partPx, 0);
+  simCtx.lineTo(partPx, doorTopPx);
+  simCtx.stroke();
+  // Bottom wall segment (below door)
+  simCtx.beginPath();
+  simCtx.moveTo(partPx, doorBotPx);
+  simCtx.lineTo(partPx, SIM_CANVAS_H);
+  simCtx.stroke();
+
+  // Door opening — draw faint dashed line
+  simCtx.strokeStyle = 'rgba(42, 157, 143, 0.3)';
+  simCtx.lineWidth = 1;
+  simCtx.setLineDash([4, 4]);
+  simCtx.beginPath();
+  simCtx.moveTo(partPx, doorTopPx);
+  simCtx.lineTo(partPx, doorBotPx);
+  simCtx.stroke();
+  simCtx.setLineDash([]);
+
+  // Draw box border
+  simCtx.strokeStyle = '#445';
+  simCtx.lineWidth = 1;
+  simCtx.strokeRect(0, 0, SIM_CANVAS_W, SIM_CANVAS_H);
+}
+
+function renderHistogram() {
+  const W = histCanvas.width;
+  const H = histCanvas.height;
+  histCtx.clearRect(0, 0, W, H);
+
+  const nBins = 40;
+  const maxSpeed = 5 * Math.sqrt(T);
+  const binWidth = maxSpeed / nBins;
+  const bins = new Float64Array(nBins);
+
+  for (let i = 0; i < N; i++) {
+    const speed = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]);
+    const bin = Math.min(Math.floor(speed / binWidth), nBins - 1);
+    bins[bin]++;
+  }
+
+  for (let i = 0; i < nBins; i++) bins[i] /= (N * binWidth);
+
+  let maxDensity = 0;
+  for (let i = 0; i < nBins; i++) if (bins[i] > maxDensity) maxDensity = bins[i];
+
+  let maxAnalytical = 0;
+  for (let i = 0; i < nBins; i++) {
+    const v = (i + 0.5) * binWidth;
+    const fv = (v / T) * Math.exp(-v * v / (2 * T));
+    if (fv > maxAnalytical) maxAnalytical = fv;
+  }
+
+  const yMax = Math.max(maxDensity, maxAnalytical) * 1.1;
+  const margin = { left: 35, right: 10, top: 10, bottom: 22 };
+  const plotW = W - margin.left - margin.right;
+  const plotH = H - margin.top - margin.bottom;
+
+  histCtx.fillStyle = 'rgba(42, 157, 143, 0.5)';
+  for (let i = 0; i < nBins; i++) {
+    const bx = margin.left + (i / nBins) * plotW;
+    const bw = plotW / nBins;
+    const bh = (bins[i] / yMax) * plotH;
+    histCtx.fillRect(bx, margin.top + plotH - bh, bw - 1, bh);
+  }
+
+  histCtx.strokeStyle = '#e76f51';
+  histCtx.lineWidth = 2;
+  histCtx.beginPath();
+  for (let px = 0; px < plotW; px++) {
+    const v = (px / plotW) * maxSpeed;
+    const fv = (v / T) * Math.exp(-v * v / (2 * T));
+    const py = margin.top + plotH - (fv / yMax) * plotH;
+    if (px === 0) histCtx.moveTo(margin.left + px, py);
+    else histCtx.lineTo(margin.left + px, py);
+  }
+  histCtx.stroke();
+
+  histCtx.strokeStyle = '#445';
+  histCtx.lineWidth = 1;
+  histCtx.beginPath();
+  histCtx.moveTo(margin.left, margin.top);
+  histCtx.lineTo(margin.left, margin.top + plotH);
+  histCtx.lineTo(margin.left + plotW, margin.top + plotH);
+  histCtx.stroke();
+
+  histCtx.fillStyle = '#667';
+  histCtx.font = '10px Courier New';
+  histCtx.textAlign = 'center';
+  histCtx.fillText('speed', margin.left + plotW / 2, H - 2);
+  histCtx.textAlign = 'left';
+  histCtx.fillText('f(v)', 0, margin.top + 10);
+
+  histCtx.fillStyle = '#e76f51';
+  histCtx.fillText('— MB theory', margin.left + plotW - 80, margin.top + 12);
+  histCtx.fillStyle = 'rgba(42, 157, 143, 0.8)';
+  histCtx.fillText('█ simulation', margin.left + plotW - 80, margin.top + 24);
+}
+
+function renderTimeSeries(ctx, canvas, history, label, color, showZeroLine) {
+  const W = canvas.width;
+  const H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  if (history.length < 2) return;
+
+  const margin = { left: 45, right: 10, top: 10, bottom: 22 };
+  const plotW = W - margin.left - margin.right;
+  const plotH = H - margin.top - margin.bottom;
+
+  let minV = Infinity, maxV = -Infinity;
+  for (const [, v] of history) {
+    if (v < minV) minV = v;
+    if (v > maxV) maxV = v;
+  }
+
+  const range = maxV - minV || 1;
+  minV -= range * 0.1;
+  maxV += range * 0.1;
+
+  // If showZeroLine and zero is in range, draw it
+  if (showZeroLine && minV < 0 && maxV > 0) {
+    const zeroY = margin.top + plotH - ((0 - minV) / (maxV - minV)) * plotH;
+    ctx.strokeStyle = '#445';
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(margin.left, zeroY);
+    ctx.lineTo(margin.left + plotW, zeroY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  } else if (!showZeroLine) {
+    // Draw reference line at initial value
+    const refY = margin.top + plotH - ((history[0][1] - minV) / (maxV - minV)) * plotH;
+    ctx.strokeStyle = '#445';
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(margin.left, refY);
+    ctx.lineTo(margin.left + plotW, refY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  const tMin = history[0][0];
+  const tMax = history[history.length - 1][0];
+  const tRange = tMax - tMin || 1;
+
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for (let i = 0; i < history.length; i++) {
+    const px = margin.left + ((history[i][0] - tMin) / tRange) * plotW;
+    const py = margin.top + plotH - ((history[i][1] - minV) / (maxV - minV)) * plotH;
+    if (i === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+
+  // Axes
+  ctx.strokeStyle = '#445';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(margin.left, margin.top);
+  ctx.lineTo(margin.left, margin.top + plotH);
+  ctx.lineTo(margin.left + plotW, margin.top + plotH);
+  ctx.stroke();
+
+  ctx.fillStyle = '#667';
+  ctx.font = '10px Courier New';
+  ctx.textAlign = 'center';
+  ctx.fillText('time', margin.left + plotW / 2, H - 2);
+  ctx.textAlign = 'right';
+  ctx.fillText(maxV.toFixed(2), margin.left - 3, margin.top + 10);
+  ctx.fillText(minV.toFixed(2), margin.left - 3, margin.top + plotH);
+  ctx.textAlign = 'left';
+  ctx.fillText(label, 2, margin.top + 10);
+}
+
+// ============================================================
+// Stats display
+// ============================================================
+function updateStats() {
+  const ke = computeKE();
+  const drift = initialKE > 0 ? ((ke - initialKE) / initialKE * 100) : 0;
+  const { tL, tR, nL, nR } = computeSideTemps();
+
+  document.getElementById('statTL').textContent = tL.toFixed(3);
+  document.getElementById('statTR').textContent = tR.toFixed(3);
+  document.getElementById('statNL').textContent = nL;
+  document.getElementById('statNR').textContent = nR;
+
+  const driftEl = document.getElementById('statDrift');
+  driftEl.textContent = drift.toFixed(4) + '%';
+  driftEl.className = Math.abs(drift) > 0.1 ? 'warn' : 'ok';
+
+  document.getElementById('statBits').textContent = totalBits.toFixed(1);
+  document.getElementById('statFPS').textContent = currentFps;
+  document.getElementById('statTime').textContent = simTime.toFixed(1);
+}
+
+// ============================================================
+// Main loop
+// ============================================================
+const STEPS_PER_FRAME = 5;
+let renderCounter = 0;
+
+function loop() {
+  if (!running) return;
+
+  for (let s = 0; s < STEPS_PER_FRAME; s++) {
+    step();
+  }
+
+  renderSim();
+
+  renderCounter++;
+  if (renderCounter % 10 === 0) {
+    renderHistogram();
+    renderTimeSeries(dtCtx, dtCanvas, dtHistory, 'ΔT', '#e9c46a', true);
+    renderTimeSeries(energyCtx, energyCanvas, keHistory, 'KE', '#a0c4ff', false);
+    updateStats();
+  }
+
+  frameCount++;
+  const now = performance.now();
+  if (now - lastFpsTime >= 1000) {
+    currentFps = frameCount;
+    frameCount = 0;
+    lastFpsTime = now;
+  }
+
+  animId = requestAnimationFrame(loop);
+}
+
+// ============================================================
+// Controls
+// ============================================================
+function readParams() {
+  return {
+    N: parseInt(document.getElementById('sliderN').value),
+    T: parseFloat(document.getElementById('sliderT').value),
+    R: parseFloat(document.getElementById('sliderR').value),
+    door: parseInt(document.getElementById('sliderDoor').value) / 100,
+    demon: document.getElementById('selectDemon').value,
+    localR: parseFloat(document.getElementById('sliderLocalR').value),
+  };
+}
+
+function updateSliderDisplays() {
+  document.getElementById('valN').textContent = document.getElementById('sliderN').value;
+  document.getElementById('valT').textContent = parseFloat(document.getElementById('sliderT').value).toFixed(1);
+  document.getElementById('valR').textContent = parseFloat(document.getElementById('sliderR').value).toFixed(1);
+  document.getElementById('valDoor').textContent = document.getElementById('sliderDoor').value + '%';
+  document.getElementById('valLocalR').textContent = parseFloat(document.getElementById('sliderLocalR').value).toFixed(2);
+
+  // Show/hide local radius slider
+  const demon = document.getElementById('selectDemon').value;
+  document.getElementById('labelLocalR').style.display = demon === 'local' ? '' : 'none';
+}
+
+document.querySelectorAll('.controls input, .controls select').forEach(el => {
+  el.addEventListener('input', updateSliderDisplays);
+});
+
+let initialized = false;
+
+function startOrResume() {
+  if (!initialized) {
+    const p = readParams();
+    doorFraction = p.door;
+    demonType = p.demon;
+    localRadiusFrac = p.localR;
+    init(p.N, p.T, p.R);
+    initialized = true;
+    renderSim();
+    renderHistogram();
+    updateStats();
+  }
+  running = true;
+  document.getElementById('btnStartPause').textContent = 'Pause';
+  loop();
+}
+
+function pauseSim() {
+  running = false;
+  document.getElementById('btnStartPause').textContent = 'Resume';
+}
+
+document.getElementById('btnStartPause').addEventListener('click', () => {
+  if (running) pauseSim();
+  else startOrResume();
+});
+
+document.getElementById('btnReset').addEventListener('click', () => {
+  running = false;
+  initialized = false;
+  if (animId) cancelAnimationFrame(animId);
+  document.getElementById('btnStartPause').textContent = 'Start';
+  const p = readParams();
+  doorFraction = p.door;
+  demonType = p.demon;
+  localRadiusFrac = p.localR;
+  init(p.N, p.T, p.R);
+  renderSim();
+  renderHistogram();
+  renderTimeSeries(dtCtx, dtCanvas, dtHistory, 'ΔT', '#e9c46a', true);
+  renderTimeSeries(energyCtx, energyCanvas, keHistory, 'KE', '#a0c4ff', false);
+  updateStats();
+});
+
+// ============================================================
+// Initial render
+// ============================================================
+updateSliderDisplays();
+{
+  const p = readParams();
+  doorFraction = p.door;
+  demonType = p.demon;
+  localRadiusFrac = p.localR;
+  init(p.N, p.T, p.R);
+  renderSim();
+  renderHistogram();
+  updateStats();
+}
+</script>
+
+</body>
+</html>
