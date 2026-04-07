@@ -4,46 +4,53 @@ A 2D particle simulation exploring how much of Maxwell's Demon sorting power can
 
 The core question: **how much centralization do you need to break the second law locally?**
 
+## How to Run
+
+Open `index.html` in a browser. No build step, no dependencies.
+
 ## Concept
 
-### Three Regimes
+### Four Regimes
 
 1. **No demon (control):** Door is open, particles pass freely. Both sides equilibrate to the same temperature.
-2. **Classical Maxwell's demon:** An omniscient gatekeeper with global knowledge sorts fast particles to the right and slow particles to the left.
-3. **Local "swarm" demon:** Each particle, upon arriving at the door, polls same-side neighbors within radius `r`, compares its speed to the local average, and decides whether to cross. As `r` grows to include the entire box, this should approach the classical demon's behavior.
+2. **Classical Maxwell's demon (fixed threshold):** Uses the initial mean speed at t=0 as a permanent sorting threshold. Gets less effective as the distribution shifts.
+3. **Classical Maxwell's demon (adaptive):** Uses the current per-side mean speed. "Is this particle faster than average for its side?" This is the true upper bound — the optimal use of global information.
+4. **Local "swarm" demon:** Each particle, upon arriving at the door, polls same-side neighbors within radius `r`, compares its speed to the local average, and decides whether to cross. As `r` grows to include the entire box, this approaches the adaptive classical demon's behavior.
 
 ### The Money Plot
 
-Sorting quality (ΔT, ΔS, information cost) as a function of `r/L` (neighborhood radius as a fraction of box size). The prediction: a sigmoid-like curve where most sorting power is recovered well before `r = L`, suggesting **local information can approximate global control**.
+The automated **r-sweep** runs all four regimes from identical initial conditions and produces:
+
+- **ΔT vs r/L**: sorting quality as a function of neighborhood radius. Shows a sigmoid-like curve where most sorting power is recovered well before `r = L`.
+- **Time to steady state vs r/L**: how quickly each regime converges.
+- **Classical baselines** drawn as horizontal reference lines for comparison.
 
 ## Design Decisions
 
 ### Physics
 
-- **2D hard-sphere simulation** with N particles (target N ≈ 1000).
-- **Dimensionless units:** k_B = 1, m = 1, box size 100 × 100.
-- **Time-stepping approach** (not event-driven) with fixed Δt.
-  - Δt constraint: Δt < 0.2 × R / (3√(T/m)) to keep overlaps rare.
-  - Overlap resolution: separate to exactly touching along line of centers, *then* apply elastic impulse. No push-apart without impulse (that injects energy).
-- **Energy conservation monitor** from day one. If drift exceeds ~0.1% over a run, Δt is too large.
-- **Velocities initialized** from Maxwell-Boltzmann: each component is Gaussian with σ = √(T/m). Sampled via Box-Muller.
-- **Collision detection** via cell lists (spatial hash), cells of size ~2× particle radius. O(N) per frame.
-- **Wall collisions:** flip the relevant velocity component.
+- **2D hard-sphere simulation** with N particles (target N ~ 500–1000).
+- **Dimensionless units:** k_B = 1, m = 1, box size 100 x 100.
+- **Time-stepping approach** (not event-driven) with fixed dt.
+  - dt constraint: dt < 0.2 x R / (3 sqrt(T/m)) to keep overlaps rare.
+  - Overlap resolution: separate to exactly touching along line of centers, then apply elastic impulse.
+- **Energy conservation monitor**: drift displayed live, color-coded warning at 0.1%.
+- **Velocities initialized** from Maxwell-Boltzmann via Box-Muller. Net momentum removed.
+- **Collision detection** via cell lists (spatial hash). O(N) per frame.
+- **Wall collisions:** elastic reflection (flip relevant velocity component).
 
 ### Partition and Door
 
 - **Partition** is a vertical line at x = L/2.
 - **Door** is a segment of the partition with variable width W (set as a fraction of box height).
-- **Geometric trigger:** a particle's trajectory crossing the door segment triggers the policy decision.
-- **Rejection:** particle reflects elastically off the partition at the crossing point.
-- **Decision timing:** arrival-only (particle decides once upon reaching the door, not continuously).
+- **Geometric trigger:** particle overlapping the door segment triggers the policy decision.
+- **Rejection:** particle reflects elastically off the partition.
+- **Decision timing:** arrival-only.
 
 ### Classical Demon Policy
 
-Two sub-modes:
-
-- **Fixed threshold:** uses the initial mean speed at t=0. The honest "omniscient at one point in time" version. Gets less effective as the distribution shifts.
-- **Adaptive threshold:** uses the current global mean speed. Has ongoing global information. This is the fairer comparison to the local demon (both use current information, just at different scales).
+- **Fixed threshold:** initial mean speed. One-time global knowledge.
+- **Adaptive threshold:** current per-side mean speed. Ongoing global knowledge. This is the correct upper bound because the local demon at large r also uses per-side information. Both answer the same question ("am I faster than my side's average?") — the classical demon just has a perfect sample.
 
 ### Local Demon Policy
 
@@ -51,72 +58,49 @@ When particle `i` arrives at the door from side S:
 
 1. Find all particles `j` where:
    - `j` is on side S (same-side only — the partition is an information barrier)
-   - distance(i, j) ≤ r
+   - distance(i, j) <= r
    - `j` is moving toward the door (v_x > 0 if left side, v_x < 0 if right side)
-   - j ≠ i
+   - j != i
 2. Compute mean speed |v| of that neighbor set.
-3. If |v_i| > mean → pass through.
-4. If |v_i| ≤ mean → reject (reflect).
-5. **If the neighbor set is empty → reject.** No information = no basis for a decision.
+3. If |v_i| > mean -> pass through.
+4. If |v_i| <= mean -> reject (reflect).
+5. **If the neighbor set is empty -> reject.** No information = no basis for a decision.
 
-**Bidirectional rule:** particles can cross in both directions. A slow particle on the right can decide to cross left. This is the cleaner "agents with local information" setup — no privileged direction.
-
-**Note:** same-side-only neighbors with a cooling left side may cause runaway sorting at small r (the reference population gets slower, so more particles pass the test). This is expected behavior from the feedback loop of a cooling reference frame, not a bug.
+**Bidirectional rule:** particles can cross in both directions. A slow particle on the right can decide to cross left.
 
 ### Measurements
 
-Three order parameters tracked over time:
+Tracked over time:
 
-1. **ΔT = T_right − T_left:** Primary, most intuitive. In 2D, T = ⟨KE⟩ / k_B per particle (no 3/2 factor).
-2. **ΔS (entropy change):** S per side = N × [ln(A/N) + ln(T) + const]. Report ΔS(t) = [S_left(t) + S_right(t)] − [S_total(0)]. Normalize per particle for cross-N comparisons.
-3. **Information-theoretic work (Landauer cost):**
-   - Classical demon: log₂(N) bits per decision.
-   - Local demon: log₂(k+1) bits per decision, where k = number of neighbors polled.
-   - Cumulative bits × k_B T ln(2) = minimum thermodynamic work.
+- **dT = T_right - T_left:** primary order parameter.
+- **dS per particle:** 2D ideal gas entropy change, S = N[ln(A/N) + ln(T)].
+- **Cumulative information bits:** classical = log2(N) per decision, local = log2(k+1) where k = neighbors polled.
 
-**Steady-state detection:** moving-window slope of ΔT; flag when slope is below threshold over several consecutive windows.
+**Steady-state detection:** compares dT now vs 30 sim-seconds ago. Declared steady when change is < 2% of peak dT (relative) or < 0.005 (absolute). Minimum time of 100 before checking.
+
+### r-Sweep
+
+The automated sweep:
+
+1. Initializes particles once and saves state.
+2. Runs classical (fixed) from saved state to convergence.
+3. Runs classical (adaptive) from saved state to convergence.
+4. Sweeps 15 values of r/L from 0.02 to 1.0, each from the same saved state.
+5. Plots dT and time-to-steady vs r/L with classical baselines as horizontal reference lines.
+
+All runs share identical initial conditions, so differences are purely due to the demon policy.
 
 ### Technology
 
-- **Web app** — single self-contained HTML file (vanilla JS + HTML5 Canvas).
-- **Canvas rendering** for particles (colored blue→red by speed) and partition/door.
-- **Second canvas or inline plots** for live ΔT(t), ΔS(t), and cumulative bits.
-- **ES modules** (`<script type="module">`) split into separate files if the codebase exceeds ~1000 lines.
+- **Single self-contained HTML file** (vanilla JS + HTML5 Canvas).
 - **No build step, no npm, no frameworks.**
+- Canvas rendering for particles (blue -> red by speed) and partition/door.
+- Live plots: speed distribution (vs MB theory), dT(t), dS(t), sweep results.
 
-### UI Layout
+### UI
 
-- **Left panel:** particle canvas — box, colored particles, visible partition with door gap.
-- **Right panel:** three stacked line plots (ΔT, ΔS, cumulative bits) sharing a time axis.
-- **Top bar:** sliders for N, T, r/L, W (door width fraction), dropdown for demon type. Buttons: Start / Pause / Reset / Export CSV.
-- **Bottom bar:** readouts for T_left, T_right, N_left, N_right, bits used, steady-state flag, energy drift monitor.
-
-## Build Order
-
-Each stage must be verified before moving to the next.
-
-### Stage 1: Box + Particles + Collisions
-- N particles in a 2D box, elastic collisions, cell-list spatial hash.
-- Energy conservation monitor.
-- **Verify:** energy conserved, velocity histogram matches Maxwell-Boltzmann after equilibration.
-
-### Stage 2: Partition + Open Door
-- Add partition with full-width door, no policy (all particles pass).
-- **Verify:** T_left ≈ T_right within statistical noise.
-
-### Stage 3: Classical Demon
-- Fixed-threshold and adaptive-threshold modes.
-- **Verify:** ΔT grows and saturates. Left cools, right heats.
-
-### Stage 4: Local Demon + Radius Sweep
-- Local demon with parameter r, using the precise neighbor definition above.
-- Sweep r from small to L, produce the ΔT vs r/L plot.
-- **Verify:** large r ≈ adaptive classical demon; small r is weaker (or shows the runaway effect).
-
-### Stage 5: Information Cost Tracking
-- Landauer work accounting across demon types and r values.
-- Scatter plot: final sorting quality vs. information cost across r.
-
-### Stage 6: UI Polish + Export
-- Sliders, controls, CSV export.
-- Split into multiple files if needed.
+- **Left panel:** particle canvas with colored particles and visible partition/door.
+- **Right panel:** speed distribution histogram, dT over time, dS over time, dT vs r/L sweep chart, time-to-steady sweep chart.
+- **Top bar:** sliders for N, T, particle radius, door width, demon type dropdown, r/L slider (when local selected). Buttons: Start/Pause, Reset, r-Sweep, Export CSV.
+- **Bottom bar:** T_left, T_right, N_left, N_right, dS, energy drift, cumulative bits, FPS, sim time, steady-state indicator.
+- **CSV export:** downloads time series and sweep results including classical baselines.

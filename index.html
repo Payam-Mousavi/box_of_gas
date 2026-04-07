@@ -18,7 +18,7 @@
   }
   h1 { font-size: 18px; margin-bottom: 8px; color: #a0c4ff; }
   .main { display: flex; gap: 16px; align-items: flex-start; }
-  .sim-panel { display: flex; flex-direction: column; gap: 6px; width: 602px; flex-shrink: 0; }
+  .sim-panel { display: flex; flex-direction: column; gap: 6px; width: 602px; flex-shrink: 0; align-self: stretch; }
   .side-panel { display: flex; flex-direction: column; gap: 6px; width: 302px; flex-shrink: 0; }
   canvas { border: 1px solid #334; border-radius: 4px; background: #0d0d1a; }
   #simCanvas { cursor: crosshair; }
@@ -98,7 +98,7 @@
 
 <div class="main">
   <div class="sim-panel">
-    <canvas id="simCanvas" width="600" height="600"></canvas>
+    <canvas id="simCanvas" width="600" height="740"></canvas>
     <div class="stats">
       <span>T<sub>L</sub>: <span id="statTL">—</span></span>
       <span>T<sub>R</sub>: <span id="statTR">—</span></span>
@@ -128,7 +128,11 @@
     </div>
     <div>
       <div class="panel-label">r-Sweep: &Delta;T vs r/L</div>
-      <canvas id="sweepCanvas" width="300" height="150"></canvas>
+      <canvas id="sweepCanvas" width="300" height="140"></canvas>
+    </div>
+    <div>
+      <div class="panel-label">r-Sweep: Time to Steady State</div>
+      <canvas id="timeCanvas" width="300" height="120"></canvas>
     </div>
   </div>
 </div>
@@ -138,8 +142,10 @@
 // Constants
 // ============================================================
 const BOX_W = 100, BOX_H = 100, PARTITION_X = BOX_W / 2;
-const SIM_CANVAS_W = 600, SIM_CANVAS_H = 600;
-const SCALE = SIM_CANVAS_W / BOX_W;
+const SIM_CANVAS_W = 600, SIM_CANVAS_H = 740;
+const SCALE_X = SIM_CANVAS_W / BOX_W;
+const SCALE_Y = SIM_CANVAS_H / BOX_H;
+const SCALE = Math.min(SCALE_X, SCALE_Y); // for particle radius
 
 // ============================================================
 // Simulation State
@@ -162,14 +168,14 @@ let running = false, animId = null;
 let keHistory = [], dtHistory = [], dsHistory = [];
 const HISTORY_MAX = 500;
 
-// Steady-state detection
-const STEADY_WINDOW = 50;        // samples in window
-const STEADY_THRESHOLD = 0.001;  // slope threshold
-const STEADY_MIN_TIME = 150;     // don't check before this time
-const STEADY_MIN_DT = 0.01;      // ΔT must have exceeded this before we check
+// Steady-state detection: compare ΔT now vs 30 sim-seconds ago
+const STEADY_LOOKBACK = 30;      // seconds to look back
+const STEADY_REL_THRESH = 0.02;  // relative change threshold (2%)
+const STEADY_ABS_THRESH = 0.005; // absolute change threshold (for small ΔT)
+const STEADY_MIN_TIME = 100;     // don't check before this time
 let isSteady = false;
 let steadyTime = null;
-let peakDT = 0;                  // track max |ΔT| seen so far
+let peakDT = 0;
 
 // Sweep state
 let sweepRunning = false;
@@ -177,8 +183,11 @@ let sweepResults = [];       // [{rL, finalDT, finalDS, bits, steadyT}]
 let sweepRValues = [];
 let sweepIdx = 0;
 let sweepPhase = 'idle';     // 'idle', 'baseline-fixed', 'baseline-adaptive', 'local'
-let baselineFixedDT = null;
-let baselineAdaptiveDT = null;
+let baselineFixedDT = null, baselineFixedTime = null;
+let baselineAdaptiveDT = null, baselineAdaptiveTime = null;
+// Saved initial state for reproducible sweep runs
+let savedX = null, savedY = null, savedVx = null, savedVy = null;
+let savedN = 0, savedMeanSpeed = 0, savedKE = 0, savedS = 0;
 
 // FPS
 let frameCount = 0, lastFpsTime = performance.now(), currentFps = 0;
@@ -300,27 +309,47 @@ function computeMeanSpeed() {
   return sum/N;
 }
 
+function computeSideMeanSpeed(onLeft) {
+  let sum=0, count=0;
+  for (let i=0;i<N;i++) {
+    if ((x[i]<PARTITION_X) === onLeft) {
+      sum += Math.sqrt(vx[i]*vx[i]+vy[i]*vy[i]);
+      count++;
+    }
+  }
+  return count>0 ? sum/count : 0;
+}
+
 // ============================================================
 // Steady-state detection
 // ============================================================
 function checkSteadyState() {
   if (isSteady) return;
-  if (dtHistory.length < STEADY_WINDOW * 2) return;
-  // Track peak |ΔT| seen
+  if (simTime < STEADY_MIN_TIME) return;
+  if (dtHistory.length < 2) return;
+
   const lastDT = Math.abs(dtHistory[dtHistory.length-1][1]);
   if (lastDT > peakDT) peakDT = lastDT;
-  // Don't declare steady until: enough time has passed AND sorting has actually started
-  if (simTime < STEADY_MIN_TIME) return;
-  if (peakDT < STEADY_MIN_DT && demonType !== 'none') return;
-  // Linear regression on last STEADY_WINDOW points
-  const pts = dtHistory.slice(-STEADY_WINDOW);
-  let sx=0,sy=0,sxx=0,sxy=0;
-  for (const [t,v] of pts) { sx+=t; sy+=v; sxx+=t*t; sxy+=t*v; }
-  const n = pts.length;
-  const denom = n*sxx - sx*sx;
-  if (denom === 0) return;
-  const slope = (n*sxy - sx*sy) / denom;
-  if (Math.abs(slope) < STEADY_THRESHOLD) {
+
+  // Find the ΔT sample from ~STEADY_LOOKBACK seconds ago
+  const targetTime = simTime - STEADY_LOOKBACK;
+  let oldIdx = -1;
+  for (let i = dtHistory.length-1; i >= 0; i--) {
+    if (dtHistory[i][0] <= targetTime) { oldIdx = i; break; }
+  }
+  if (oldIdx < 0) return; // not enough history yet
+
+  const oldDT = dtHistory[oldIdx][1];
+  const newDT = dtHistory[dtHistory.length-1][1];
+  const change = Math.abs(newDT - oldDT);
+
+  // Steady if the change over the lookback window is small
+  // Use both relative and absolute thresholds
+  const absPeak = Math.abs(peakDT);
+  const relOk = absPeak > 0 ? (change / absPeak) < STEADY_REL_THRESH : true;
+  const absOk = change < STEADY_ABS_THRESH;
+
+  if (relOk || absOk) {
     isSteady = true;
     steadyTime = simTime;
   }
@@ -393,8 +422,10 @@ function doorPolicy(i) {
   }
 
   if (demonType === 'classical-adaptive') {
+    // Per-side mean: "is this particle faster than average for its side?"
+    // This is the optimal use of global info and the true upper bound
     totalBits += Math.log2(N);
-    const threshold = computeMeanSpeed();
+    const threshold = computeSideMeanSpeed(onLeft);
     return onLeft ? speed > threshold : speed < threshold;
   }
 
@@ -485,6 +516,8 @@ const dsCanvas = document.getElementById('dsCanvas');
 const dsCtx = dsCanvas.getContext('2d');
 const sweepCanvas = document.getElementById('sweepCanvas');
 const sweepCtx = sweepCanvas.getContext('2d');
+const timeCanvas = document.getElementById('timeCanvas');
+const timeCtx = timeCanvas.getContext('2d');
 
 function speedColor(speed, maxSpeed) {
   const t = Math.min(speed/maxSpeed, 1);
@@ -505,16 +538,16 @@ function renderSim() {
   for (let i=0;i<N;i++) {
     const speed = Math.sqrt(vx[i]*vx[i]+vy[i]*vy[i]);
     simCtx.beginPath();
-    simCtx.arc(x[i]*SCALE, (BOX_H-y[i])*SCALE, r, 0, 2*Math.PI);
+    simCtx.arc(x[i]*SCALE_X, (BOX_H-y[i])*SCALE_Y, r, 0, 2*Math.PI);
     simCtx.fillStyle = speedColor(speed, maxSpeed);
     simCtx.fill();
   }
 
   // Partition
-  const partPx = PARTITION_X*SCALE;
+  const partPx = PARTITION_X*SCALE_X;
   const doorHalf = (doorFraction*BOX_H)/2;
-  const doorTopPx = (BOX_H-(BOX_H/2+doorHalf))*SCALE;
-  const doorBotPx = (BOX_H-(BOX_H/2-doorHalf))*SCALE;
+  const doorTopPx = (BOX_H-(BOX_H/2+doorHalf))*SCALE_Y;
+  const doorBotPx = (BOX_H-(BOX_H/2-doorHalf))*SCALE_Y;
 
   simCtx.strokeStyle='#8899aa'; simCtx.lineWidth=2;
   simCtx.beginPath(); simCtx.moveTo(partPx,0); simCtx.lineTo(partPx,doorTopPx); simCtx.stroke();
@@ -696,6 +729,79 @@ function renderSweepLegend(mg, pW, pH) {
   }
 }
 
+function renderSweepTime() {
+  const W=timeCanvas.width, H=timeCanvas.height;
+  timeCtx.clearRect(0,0,W,H);
+
+  const mg={left:45,right:10,top:10,bottom:20}, pW=W-mg.left-mg.right, pH=H-mg.top-mg.bottom;
+
+  // Compute Y scale from all times
+  let maxTime = 0;
+  if (baselineFixedTime !== null && baselineFixedTime > maxTime) maxTime = baselineFixedTime;
+  if (baselineAdaptiveTime !== null && baselineAdaptiveTime > maxTime) maxTime = baselineAdaptiveTime;
+  for (const r of sweepResults) if (r.steadyT > maxTime) maxTime = r.steadyT;
+  maxTime = maxTime * 1.2 || 100;
+
+  // Baseline horizontal lines
+  if (baselineFixedTime !== null) {
+    const by = mg.top + pH - (baselineFixedTime/maxTime)*pH;
+    timeCtx.strokeStyle='#e76f51'; timeCtx.lineWidth=1.5;
+    timeCtx.setLineDash([8,4]); timeCtx.beginPath();
+    timeCtx.moveTo(mg.left,by); timeCtx.lineTo(mg.left+pW,by);
+    timeCtx.stroke(); timeCtx.setLineDash([]);
+  }
+  if (baselineAdaptiveTime !== null) {
+    const by = mg.top + pH - (baselineAdaptiveTime/maxTime)*pH;
+    timeCtx.strokeStyle='#2a9d8f'; timeCtx.lineWidth=1.5;
+    timeCtx.setLineDash([8,4]); timeCtx.beginPath();
+    timeCtx.moveTo(mg.left,by); timeCtx.lineTo(mg.left+pW,by);
+    timeCtx.stroke(); timeCtx.setLineDash([]);
+  }
+
+  // Local sweep points
+  if (sweepResults.length > 0) {
+    timeCtx.fillStyle='#e9c46a';
+    for (const r of sweepResults) {
+      const px = mg.left + r.rL * pW;
+      const py = mg.top + pH - (r.steadyT/maxTime)*pH;
+      timeCtx.beginPath(); timeCtx.arc(px,py,4,0,2*Math.PI); timeCtx.fill();
+    }
+    if (sweepResults.length > 1) {
+      const sorted = [...sweepResults].sort((a,b)=>a.rL-b.rL);
+      timeCtx.strokeStyle='#e9c46a'; timeCtx.lineWidth=1.5; timeCtx.beginPath();
+      for (let i=0;i<sorted.length;i++) {
+        const px = mg.left + sorted[i].rL * pW;
+        const py = mg.top + pH - (sorted[i].steadyT/maxTime)*pH;
+        i===0?timeCtx.moveTo(px,py):timeCtx.lineTo(px,py);
+      }
+      timeCtx.stroke();
+    }
+  }
+
+  // Axes
+  timeCtx.strokeStyle='#445'; timeCtx.lineWidth=1; timeCtx.beginPath();
+  timeCtx.moveTo(mg.left,mg.top); timeCtx.lineTo(mg.left,mg.top+pH);
+  timeCtx.lineTo(mg.left+pW,mg.top+pH); timeCtx.stroke();
+
+  timeCtx.fillStyle='#667'; timeCtx.font='10px Courier New';
+  timeCtx.textAlign='center'; timeCtx.fillText('r/L',mg.left+pW/2,H-2);
+  timeCtx.textAlign='right';
+  timeCtx.fillText(maxTime.toFixed(0),mg.left-3,mg.top+10);
+  timeCtx.fillText('0',mg.left-3,mg.top+pH);
+  timeCtx.textAlign='left'; timeCtx.fillText('t',2,mg.top+10);
+
+  // Legend
+  timeCtx.font='9px Courier New';
+  let ly = mg.top + 10;
+  timeCtx.fillStyle='#e9c46a'; timeCtx.fillText('— local',mg.left+4,ly); ly+=11;
+  if (baselineFixedTime !== null) {
+    timeCtx.fillStyle='#e76f51'; timeCtx.fillText('-- fixed',mg.left+4,ly); ly+=11;
+  }
+  if (baselineAdaptiveTime !== null) {
+    timeCtx.fillStyle='#2a9d8f'; timeCtx.fillText('-- adaptive',mg.left+4,ly);
+  }
+}
+
 // ============================================================
 // Stats
 // ============================================================
@@ -768,35 +874,65 @@ function loop() {
 // ============================================================
 // r-Sweep
 // ============================================================
+function saveInitialState() {
+  savedN = N;
+  savedX = new Float64Array(x);
+  savedY = new Float64Array(y);
+  savedVx = new Float64Array(vx);
+  savedVy = new Float64Array(vy);
+  savedMeanSpeed = initialMeanSpeed;
+  savedKE = initialKE;
+  savedS = initialS;
+}
+
+function restoreInitialState() {
+  N = savedN;
+  x = new Float64Array(savedX);
+  y = new Float64Array(savedY);
+  vx = new Float64Array(savedVx);
+  vy = new Float64Array(savedVy);
+  initialMeanSpeed = savedMeanSpeed;
+  initialKE = savedKE;
+  simTime = 0; totalBits = 0;
+  keHistory = []; dtHistory = []; dsHistory = [];
+  isSteady = false; steadyTime = null; peakDT = 0;
+  const s0 = computeSideTemps();
+  initialS = computeEntropy(s0.tL, s0.nL, s0.tR, s0.nR);
+}
+
 function startSweep() {
   if (sweepRunning) return;
   sweepRunning = true;
   sweepResults = [];
   sweepRValues = [];
-  baselineFixedDT = null;
-  baselineAdaptiveDT = null;
+  baselineFixedDT = null; baselineFixedTime = null;
+  baselineAdaptiveDT = null; baselineAdaptiveTime = null;
   for (let r=0.02; r<=1.01; r+=0.07) sweepRValues.push(Math.min(r,1.0));
   sweepIdx = 0;
   sweepPhase = 'baseline-fixed';
   document.getElementById('btnSweep').disabled = true;
   document.getElementById('btnStartPause').disabled = true;
+
+  // Initialize once and save — all sweep runs start from this state
+  const p = readParams();
+  doorFraction = p.door;
+  init(p.N, p.T, p.R);
+  saveInitialState();
+
   runSweepPhase();
 }
 
 function runSweepPhase() {
-  const p = readParams();
-  doorFraction = p.door;
-
   if (sweepPhase === 'baseline-fixed') {
     document.getElementById('sweepStatus').textContent = 'Sweep: running classical (fixed) baseline...';
     demonType = 'classical-fixed';
-    init(p.N, p.T, p.R);
+    restoreInitialState();
     running = true;
     loop();
   } else if (sweepPhase === 'baseline-adaptive') {
     document.getElementById('sweepStatus').textContent = 'Sweep: running classical (adaptive) baseline...';
     demonType = 'classical-adaptive';
-    init(p.N, p.T, p.R);
+    restoreInitialState();
     running = true;
     loop();
   } else if (sweepPhase === 'local') {
@@ -813,11 +949,9 @@ function runLocalSweepStep() {
   document.getElementById('sweepStatus').textContent =
     `Sweep: r/L = ${rL.toFixed(2)} (${sweepIdx+1}/${sweepRValues.length})`;
 
-  const p = readParams();
   demonType = 'local';
   localRadiusFrac = rL;
-  doorFraction = p.door;
-  init(p.N, p.T, p.R);
+  restoreInitialState();
   running = true;
   loop();
 }
@@ -831,13 +965,15 @@ function finishSweepStep() {
 
   if (sweepPhase === 'baseline-fixed') {
     baselineFixedDT = finalDT;
+    baselineFixedTime = steadyTime || simTime;
     sweepPhase = 'baseline-adaptive';
-    renderSweep();
+    renderSweep(); renderSweepTime();
     setTimeout(runSweepPhase, 50);
   } else if (sweepPhase === 'baseline-adaptive') {
     baselineAdaptiveDT = finalDT;
+    baselineAdaptiveTime = steadyTime || simTime;
     sweepPhase = 'local';
-    renderSweep();
+    renderSweep(); renderSweepTime();
     setTimeout(runSweepPhase, 50);
   } else {
     sweepResults.push({
@@ -847,7 +983,7 @@ function finishSweepStep() {
       bits: totalBits,
       steadyT: steadyTime || simTime,
     });
-    renderSweep();
+    renderSweep(); renderSweepTime();
     sweepIdx++;
     setTimeout(runLocalSweepStep, 50);
   }
