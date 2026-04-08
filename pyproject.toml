@@ -15,5 +15,9 @@ box-of-gas-analyze = "analyze_export:main"
 requires = ["hatchling>=1.18"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+include = ["analyze_export.py"]
+
 [tool.uv]
 package = true
