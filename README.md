@@ -93,7 +93,12 @@ Tracked over time:
 - **dS per particle:** 2D ideal gas entropy change, S = N[ln(A/N) + ln(T)].
 - **Cumulative information bits:** classical = log2(N) per decision, local = log2(k+1) where k = neighbors polled.
 
-**Steady-state detection:** compares dT now vs 30 sim-seconds ago. Declared steady when change is < 2% of peak dT (relative) or < 0.005 (absolute). Minimum time of 100 before checking.
+**Steady-state detection:** compares dT now vs 30 sim-seconds ago. Two independent criteria (either triggers):
+
+- **Relative:** change < 2% of peak |dT| (only when peak > 0).
+- **Absolute:** peak |dT| is tiny (< 5x threshold), current |dT| < 0.005, and change < 0.005.
+
+Minimum sim time of 100 before checking. During sweeps, an additional **hold period** of 40 sim-seconds after detection confirms stability, plus minimum run times (400 for baselines, 200 for local).
 
 ### r-Sweep
 
@@ -117,11 +122,11 @@ All runs share identical initial conditions, so differences are purely due to th
 
 | File | Lines | Responsibility |
 |------|-------|----------------|
-| `index.html` | ~170 | HTML/CSS, controls, main loop |
-| `sim.js` | ~230 | Physics engine: init, collisions, walls, stepping, steady-state detection |
+| `index.html` | ~280 | HTML/CSS, controls, main loop, sweep termination logic |
+| `sim.js` | ~310 | Physics engine: init, collisions, walls, stepping, steady-state detection |
 | `policy.js` | ~50 | Demon door policies (none, classical-fixed, classical-adaptive, local) |
-| `render.js` | ~230 | All canvas rendering, FPS tracking, stats bar |
-| `sweep.js` | ~150 | r-sweep orchestration, state save/restore, CSV export |
+| `render.js` | ~300 | All canvas rendering, FPS tracking, stats bar |
+| `sweep.js` | ~190 | r-sweep orchestration, state save/restore, CSV export |
 
 All files use classic `<script src>` tags (not ES modules) so they share the global scope. Load order: sim → policy → render → sweep → inline controls.
 
