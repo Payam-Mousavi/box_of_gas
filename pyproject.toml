@@ -1,0 +1,19 @@
+[project]
+name = "box-of-gas-analysis"
+description = "CLI for analyzing Box of Gas simulator CSV exports"
+version = "0.1.0"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "matplotlib>=3.7",
+]
+
+[project.scripts]
+box-of-gas-analyze = "analyze_export:main"
+
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = true

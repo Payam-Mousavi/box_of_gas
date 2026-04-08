@@ -6,7 +6,24 @@ The core question: **how much centralization do you need to break the second law
 
 ## How to Run
 
-Open `index.html` in a browser. No build step, no dependencies.
+Serve the directory with any static HTTP server, then open `index.html`:
+
+```bash
+python3 -m http.server        # then visit http://localhost:8000
+```
+
+No build step, no npm, no dependencies — just vanilla JS files loaded via `<script src>`.
+
+## Python Analysis Package (uv-ready)
+
+You can analyze CSV exports offline using the bundled Python CLI:
+
+```bash
+cd box_of_gas
+uv run box-of-gas-analyze path/to/export.csv --out plots/
+```
+
+The CLI depends only on `matplotlib` and is packaged via `pyproject.toml` so you can `uv tool install .` or run it directly with `uv run`.
 
 ## Concept
 
@@ -92,10 +109,21 @@ All runs share identical initial conditions, so differences are purely due to th
 
 ### Technology
 
-- **Single self-contained HTML file** (vanilla JS + HTML5 Canvas).
-- **No build step, no npm, no frameworks.**
+- **Vanilla JS + HTML5 Canvas.** No build step, no npm, no frameworks.
 - Canvas rendering for particles (blue -> red by speed) and partition/door.
 - Live plots: speed distribution (vs MB theory), dT(t), dS(t), sweep results.
+
+### File Structure
+
+| File | Lines | Responsibility |
+|------|-------|----------------|
+| `index.html` | ~170 | HTML/CSS, controls, main loop |
+| `sim.js` | ~230 | Physics engine: init, collisions, walls, stepping, steady-state detection |
+| `policy.js` | ~50 | Demon door policies (none, classical-fixed, classical-adaptive, local) |
+| `render.js` | ~230 | All canvas rendering, FPS tracking, stats bar |
+| `sweep.js` | ~150 | r-sweep orchestration, state save/restore, CSV export |
+
+All files use classic `<script src>` tags (not ES modules) so they share the global scope. Load order: sim → policy → render → sweep → inline controls.
 
 ### UI
 

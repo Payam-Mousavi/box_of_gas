@@ -104,7 +104,7 @@
       <span>T<sub>R</sub>: <span id="statTR">—</span></span>
       <span>N<sub>L</sub>: <span id="statNL">—</span></span>
       <span>N<sub>R</sub>: <span id="statNR">—</span></span>
-      <span>&Delta;S: <span id="statDS">—</span></span>
+      <span>&Delta;S/N: <span id="statDS">—</span></span>
       <span>Drift: <span id="statDrift">—</span></span>
       <span>Bits: <span id="statBits">—</span></span>
       <span>FPS: <span id="statFPS">—</span></span>
@@ -137,901 +137,11 @@
   </div>
 </div>
 
+<script src="sim.js"></script>
+<script src="policy.js"></script>
+<script src="render.js"></script>
+<script src="sweep.js"></script>
 <script>
-// ============================================================
-// Constants
-// ============================================================
-const BOX_W = 100, BOX_H = 100, PARTITION_X = BOX_W / 2;
-const SIM_CANVAS_W = 600, SIM_CANVAS_H = 740;
-const SCALE_X = SIM_CANVAS_W / BOX_W;
-const SCALE_Y = SIM_CANVAS_H / BOX_H;
-const SCALE = Math.min(SCALE_X, SCALE_Y); // for particle radius
-
-// ============================================================
-// Simulation State
-// ============================================================
-let N, T, particleRadius;
-let doorFraction = 0.3;
-let demonType = 'none';
-let localRadiusFrac = 0.1;
-
-let x, y, vx, vy;
-let cellSize, nCellsX, nCellsY, cells;
-let dt = 0.02;
-let simTime = 0;
-let initialKE = 0, initialMeanSpeed = 0;
-let initialS = 0;           // initial total entropy
-let totalBits = 0;
-let running = false, animId = null;
-
-// History
-let keHistory = [], dtHistory = [], dsHistory = [];
-const HISTORY_MAX = 500;
-
-// Steady-state detection: compare ΔT now vs 30 sim-seconds ago
-const STEADY_LOOKBACK = 30;      // seconds to look back
-const STEADY_REL_THRESH = 0.02;  // relative change threshold (2%)
-const STEADY_ABS_THRESH = 0.005; // absolute change threshold (for small ΔT)
-const STEADY_MIN_TIME = 100;     // don't check before this time
-let isSteady = false;
-let steadyTime = null;
-let peakDT = 0;
-
-// Sweep state
-let sweepRunning = false;
-let sweepResults = [];       // [{rL, finalDT, finalDS, bits, steadyT}]
-let sweepRValues = [];
-let sweepIdx = 0;
-let sweepPhase = 'idle';     // 'idle', 'baseline-fixed', 'baseline-adaptive', 'local'
-let baselineFixedDT = null, baselineFixedTime = null;
-let baselineAdaptiveDT = null, baselineAdaptiveTime = null;
-// Saved initial state for reproducible sweep runs
-let savedX = null, savedY = null, savedVx = null, savedVy = null;
-let savedN = 0, savedMeanSpeed = 0, savedKE = 0, savedS = 0;
-
-// FPS
-let frameCount = 0, lastFpsTime = performance.now(), currentFps = 0;
-
-// ============================================================
-// Box-Muller
-// ============================================================
-function randn() {
-  let u, v, s;
-  do { u = Math.random()*2-1; v = Math.random()*2-1; s = u*u+v*v; }
-  while (s >= 1 || s === 0);
-  return u * Math.sqrt(-2 * Math.log(s) / s);
-}
-
-// ============================================================
-// Initialization
-// ============================================================
-function init(nParticles, temperature, radius) {
-  N = nParticles; T = temperature; particleRadius = radius;
-
-  const maxDt = 0.2 * particleRadius / (3 * Math.sqrt(T));
-  dt = Math.min(0.02, maxDt);
-
-  x = new Float64Array(N); y = new Float64Array(N);
-  vx = new Float64Array(N); vy = new Float64Array(N);
-
-  cellSize = Math.max(2 * particleRadius, 1.0);
-  nCellsX = Math.ceil(BOX_W / cellSize);
-  nCellsY = Math.ceil(BOX_H / cellSize);
-
-  // Place particles
-  const minDist = 2 * particleRadius, minDist2 = minDist * minDist;
-  const margin = particleRadius;
-  let placed = 0, attempts = 0;
-  const placeCellSize = minDist;
-  const placeNX = Math.ceil(BOX_W / placeCellSize);
-  const placeNY = Math.ceil(BOX_H / placeCellSize);
-  const placeGrid = new Array(placeNX * placeNY);
-  for (let i = 0; i < placeGrid.length; i++) placeGrid[i] = [];
-
-  while (placed < N && attempts < N * 1000) {
-    const px = margin + Math.random() * (BOX_W - 2*margin);
-    const py = margin + Math.random() * (BOX_H - 2*margin);
-    const ci = Math.floor(px / placeCellSize);
-    const cj = Math.floor(py / placeCellSize);
-    let overlap = false;
-    outer:
-    for (let di = -1; di <= 1; di++) {
-      for (let dj = -1; dj <= 1; dj++) {
-        const ni = ci+di, nj = cj+dj;
-        if (ni<0||ni>=placeNX||nj<0||nj>=placeNY) continue;
-        for (const idx of placeGrid[ni*placeNY+nj]) {
-          if ((px-x[idx])**2+(py-y[idx])**2 < minDist2) { overlap=true; break outer; }
-        }
-      }
-    }
-    if (!overlap) {
-      x[placed]=px; y[placed]=py;
-      placeGrid[ci*placeNY+cj].push(placed);
-      placed++;
-    }
-    attempts++;
-  }
-  if (placed < N) { console.warn(`Placed ${placed}/${N}`); N = placed; }
-
-  // Velocities from MB
-  const sigma = Math.sqrt(T);
-  let sumVx=0, sumVy=0;
-  for (let i=0;i<N;i++) { vx[i]=sigma*randn(); vy[i]=sigma*randn(); sumVx+=vx[i]; sumVy+=vy[i]; }
-  const avgVx=sumVx/N, avgVy=sumVy/N;
-  for (let i=0;i<N;i++) { vx[i]-=avgVx; vy[i]-=avgVy; }
-
-  let sumSpeed=0;
-  for (let i=0;i<N;i++) sumSpeed+=Math.sqrt(vx[i]*vx[i]+vy[i]*vy[i]);
-  initialMeanSpeed = sumSpeed/N;
-
-  simTime=0; totalBits=0;
-  initialKE = computeKE();
-  keHistory=[]; dtHistory=[]; dsHistory=[];
-  isSteady=false; steadyTime=null; peakDT=0;
-
-  // Compute initial entropy
-  const s0 = computeSideTemps();
-  initialS = computeEntropy(s0.tL, s0.nL, s0.tR, s0.nR);
-}
-
-// ============================================================
-// Physics computations
-// ============================================================
-function computeKE() {
-  let ke=0;
-  for (let i=0;i<N;i++) ke += vx[i]*vx[i]+vy[i]*vy[i];
-  return 0.5*ke;
-}
-
-function computeSideTemps() {
-  let keL=0,keR=0,nL=0,nR=0;
-  for (let i=0;i<N;i++) {
-    const ke = 0.5*(vx[i]*vx[i]+vy[i]*vy[i]);
-    if (x[i]<PARTITION_X) { keL+=ke; nL++; } else { keR+=ke; nR++; }
-  }
-  return { tL: nL>0?keL/nL:0, tR: nR>0?keR/nR:0, nL, nR };
-}
-
-// 2D ideal gas entropy: S = N * [ln(A/N) + ln(T) + const]
-// We only care about ΔS, so the constant cancels
-function computeEntropy(tL, nL, tR, nR) {
-  const aL = PARTITION_X * BOX_H;  // area of left side
-  const aR = (BOX_W - PARTITION_X) * BOX_H;
-  let s = 0;
-  if (nL > 0) s += nL * (Math.log(aL/nL) + Math.log(Math.max(tL, 1e-10)));
-  if (nR > 0) s += nR * (Math.log(aR/nR) + Math.log(Math.max(tR, 1e-10)));
-  return s;
-}
-
-function computeMeanSpeed() {
-  let sum=0;
-  for (let i=0;i<N;i++) sum+=Math.sqrt(vx[i]*vx[i]+vy[i]*vy[i]);
-  return sum/N;
-}
-
-function computeSideMeanSpeed(onLeft) {
-  let sum=0, count=0;
-  for (let i=0;i<N;i++) {
-    if ((x[i]<PARTITION_X) === onLeft) {
-      sum += Math.sqrt(vx[i]*vx[i]+vy[i]*vy[i]);
-      count++;
-    }
-  }
-  return count>0 ? sum/count : 0;
-}
-
-// ============================================================
-// Steady-state detection
-// ============================================================
-function checkSteadyState() {
-  if (isSteady) return;
-  if (simTime < STEADY_MIN_TIME) return;
-  if (dtHistory.length < 2) return;
-
-  const lastDT = Math.abs(dtHistory[dtHistory.length-1][1]);
-  if (lastDT > peakDT) peakDT = lastDT;
-
-  // Find the ΔT sample from ~STEADY_LOOKBACK seconds ago
-  const targetTime = simTime - STEADY_LOOKBACK;
-  let oldIdx = -1;
-  for (let i = dtHistory.length-1; i >= 0; i--) {
-    if (dtHistory[i][0] <= targetTime) { oldIdx = i; break; }
-  }
-  if (oldIdx < 0) return; // not enough history yet
-
-  const oldDT = dtHistory[oldIdx][1];
-  const newDT = dtHistory[dtHistory.length-1][1];
-  const change = Math.abs(newDT - oldDT);
-
-  // Steady if the change over the lookback window is small
-  // Use both relative and absolute thresholds
-  const absPeak = Math.abs(peakDT);
-  const relOk = absPeak > 0 ? (change / absPeak) < STEADY_REL_THRESH : true;
-  const absOk = change < STEADY_ABS_THRESH;
-
-  if (relOk || absOk) {
-    isSteady = true;
-    steadyTime = simTime;
-  }
-}
-
-// ============================================================
-// Cell list + collisions
-// ============================================================
-function buildCellList() {
-  if (!cells || cells.length !== nCellsX*nCellsY) {
-    cells = new Array(nCellsX*nCellsY);
-    for (let i=0;i<cells.length;i++) cells[i]=[];
-  } else {
-    for (let i=0;i<cells.length;i++) cells[i].length=0;
-  }
-  for (let i=0;i<N;i++) {
-    const ci = Math.min(Math.floor(x[i]/cellSize),nCellsX-1);
-    const cj = Math.min(Math.floor(y[i]/cellSize),nCellsY-1);
-    cells[ci*nCellsY+cj].push(i);
-  }
-}
-
-function resolveCollision(i, j) {
-  const dx=x[j]-x[i], dy=y[j]-y[i];
-  const dist2 = dx*dx+dy*dy;
-  const minDist = 2*particleRadius;
-  if (dist2 >= minDist*minDist || dist2===0) return;
-  const dist=Math.sqrt(dist2);
-  const nx=dx/dist, ny=dy/dist;
-  const dvn = (vx[i]-vx[j])*nx + (vy[i]-vy[j])*ny;
-  if (dvn<=0) return;
-  vx[i]-=dvn*nx; vy[i]-=dvn*ny;
-  vx[j]+=dvn*nx; vy[j]+=dvn*ny;
-  const sep = (minDist-dist)*0.5+0.001;
-  x[i]-=sep*nx; y[i]-=sep*ny; x[j]+=sep*nx; y[j]+=sep*ny;
-}
-
-function handleCollisions() {
-  buildCellList();
-  for (let ci=0;ci<nCellsX;ci++) {
-    for (let cj=0;cj<nCellsY;cj++) {
-      const bucket = cells[ci*nCellsY+cj];
-      for (let a=0;a<bucket.length;a++)
-        for (let b=a+1;b<bucket.length;b++)
-          resolveCollision(bucket[a],bucket[b]);
-      const nbrs = [[ci+1,cj],[ci+1,cj+1],[ci,cj+1],[ci-1,cj+1]];
-      for (const [ni,nj] of nbrs) {
-        if (ni<0||ni>=nCellsX||nj<0||nj>=nCellsY) continue;
-        const nb = cells[ni*nCellsY+nj];
-        for (let a=0;a<bucket.length;a++)
-          for (let b=0;b<nb.length;b++)
-            resolveCollision(bucket[a],nb[b]);
-      }
-    }
-  }
-}
-
-// ============================================================
-// Door policy
-// ============================================================
-function doorPolicy(i) {
-  if (demonType === 'none') return true;
-
-  const speed = Math.sqrt(vx[i]*vx[i]+vy[i]*vy[i]);
-  const onLeft = x[i] < PARTITION_X;
-
-  if (demonType === 'classical-fixed') {
-    totalBits += Math.log2(N);
-    return onLeft ? speed > initialMeanSpeed : speed < initialMeanSpeed;
-  }
-
-  if (demonType === 'classical-adaptive') {
-    // Per-side mean: "is this particle faster than average for its side?"
-    // This is the optimal use of global info and the true upper bound
-    totalBits += Math.log2(N);
-    const threshold = computeSideMeanSpeed(onLeft);
-    return onLeft ? speed > threshold : speed < threshold;
-  }
-
-  if (demonType === 'local') {
-    const r = localRadiusFrac * BOX_W;
-    const r2 = r * r;
-    let sumSpd=0, count=0;
-    for (let j=0;j<N;j++) {
-      if (j===i) continue;
-      if ((x[j]<PARTITION_X) !== onLeft) continue;
-      if (onLeft && vx[j]<=0) continue;
-      if (!onLeft && vx[j]>=0) continue;
-      if ((x[j]-x[i])**2+(y[j]-y[i])**2 <= r2) {
-        sumSpd += Math.sqrt(vx[j]*vx[j]+vy[j]*vy[j]);
-        count++;
-      }
-    }
-    totalBits += Math.log2(count+1);
-    if (count===0) return false;
-    const mean = sumSpd/count;
-    return onLeft ? speed > mean : speed < mean;
-  }
-  return true;
-}
-
-// ============================================================
-// Walls + partition
-// ============================================================
-function handleWalls() {
-  const doorHalf = (doorFraction*BOX_H)/2;
-  const doorYMin = BOX_H/2-doorHalf, doorYMax = BOX_H/2+doorHalf;
-
-  for (let i=0;i<N;i++) {
-    if (x[i]<particleRadius)         { x[i]=particleRadius;           vx[i]=Math.abs(vx[i]); }
-    if (x[i]>BOX_W-particleRadius)   { x[i]=BOX_W-particleRadius;    vx[i]=-Math.abs(vx[i]); }
-    if (y[i]<particleRadius)         { y[i]=particleRadius;           vy[i]=Math.abs(vy[i]); }
-    if (y[i]>BOX_H-particleRadius)   { y[i]=BOX_H-particleRadius;    vy[i]=-Math.abs(vy[i]); }
-
-    if (Math.abs(x[i]-PARTITION_X) < particleRadius) {
-      const inDoor = y[i]>=doorYMin && y[i]<=doorYMax;
-      if (inDoor && doorPolicy(i)) {
-        // pass
-      } else {
-        if (x[i]<PARTITION_X) { x[i]=PARTITION_X-particleRadius; vx[i]=-Math.abs(vx[i]); }
-        else                  { x[i]=PARTITION_X+particleRadius; vx[i]=Math.abs(vx[i]); }
-      }
-    }
-  }
-}
-
-// ============================================================
-// Step
-// ============================================================
-function step() {
-  for (let i=0;i<N;i++) { x[i]+=vx[i]*dt; y[i]+=vy[i]*dt; }
-  handleWalls();
-  handleCollisions();
-  simTime += dt;
-
-  if (keHistory.length===0 || simTime - keHistory[keHistory.length-1][0] > 0.1) {
-    const ke = computeKE();
-    keHistory.push([simTime, ke]);
-    if (keHistory.length > HISTORY_MAX) keHistory.shift();
-
-    const { tL, tR, nL, nR } = computeSideTemps();
-    dtHistory.push([simTime, tR-tL]);
-    if (dtHistory.length > HISTORY_MAX) dtHistory.shift();
-
-    const currentS = computeEntropy(tL, nL, tR, nR);
-    const deltaS = (currentS - initialS) / N;  // per particle
-    dsHistory.push([simTime, deltaS]);
-    if (dsHistory.length > HISTORY_MAX) dsHistory.shift();
-
-    checkSteadyState();
-  }
-}
-
-// ============================================================
-// Rendering
-// ============================================================
-const simCanvas = document.getElementById('simCanvas');
-const simCtx = simCanvas.getContext('2d');
-const histCanvas = document.getElementById('histCanvas');
-const histCtx = histCanvas.getContext('2d');
-const dtCanvas = document.getElementById('dtCanvas');
-const dtCtx = dtCanvas.getContext('2d');
-const dsCanvas = document.getElementById('dsCanvas');
-const dsCtx = dsCanvas.getContext('2d');
-const sweepCanvas = document.getElementById('sweepCanvas');
-const sweepCtx = sweepCanvas.getContext('2d');
-const timeCanvas = document.getElementById('timeCanvas');
-const timeCtx = timeCanvas.getContext('2d');
-
-function speedColor(speed, maxSpeed) {
-  const t = Math.min(speed/maxSpeed, 1);
-  if (t < 0.5) {
-    const s = t*2;
-    return `rgb(${Math.round(80+175*s)},${Math.round(80+175*s)},255)`;
-  } else {
-    const s = (t-0.5)*2;
-    return `rgb(255,${Math.round(255-200*s)},${Math.round(255-200*s)})`;
-  }
-}
-
-function renderSim() {
-  simCtx.clearRect(0,0,SIM_CANVAS_W,SIM_CANVAS_H);
-  const maxSpeed = 3*Math.sqrt(T);
-  const r = Math.max(particleRadius*SCALE, 1.5);
-
-  for (let i=0;i<N;i++) {
-    const speed = Math.sqrt(vx[i]*vx[i]+vy[i]*vy[i]);
-    simCtx.beginPath();
-    simCtx.arc(x[i]*SCALE_X, (BOX_H-y[i])*SCALE_Y, r, 0, 2*Math.PI);
-    simCtx.fillStyle = speedColor(speed, maxSpeed);
-    simCtx.fill();
-  }
-
-  // Partition
-  const partPx = PARTITION_X*SCALE_X;
-  const doorHalf = (doorFraction*BOX_H)/2;
-  const doorTopPx = (BOX_H-(BOX_H/2+doorHalf))*SCALE_Y;
-  const doorBotPx = (BOX_H-(BOX_H/2-doorHalf))*SCALE_Y;
-
-  simCtx.strokeStyle='#8899aa'; simCtx.lineWidth=2;
-  simCtx.beginPath(); simCtx.moveTo(partPx,0); simCtx.lineTo(partPx,doorTopPx); simCtx.stroke();
-  simCtx.beginPath(); simCtx.moveTo(partPx,doorBotPx); simCtx.lineTo(partPx,SIM_CANVAS_H); simCtx.stroke();
-
-  simCtx.strokeStyle='rgba(42,157,143,0.3)'; simCtx.lineWidth=1; simCtx.setLineDash([4,4]);
-  simCtx.beginPath(); simCtx.moveTo(partPx,doorTopPx); simCtx.lineTo(partPx,doorBotPx); simCtx.stroke();
-  simCtx.setLineDash([]);
-
-  simCtx.strokeStyle='#445'; simCtx.lineWidth=1;
-  simCtx.strokeRect(0,0,SIM_CANVAS_W,SIM_CANVAS_H);
-}
-
-function renderHistogram() {
-  const W=histCanvas.width, H=histCanvas.height;
-  histCtx.clearRect(0,0,W,H);
-  const nBins=40, maxSpeed=5*Math.sqrt(T), binWidth=maxSpeed/nBins;
-  const bins = new Float64Array(nBins);
-  for (let i=0;i<N;i++) {
-    const s = Math.sqrt(vx[i]*vx[i]+vy[i]*vy[i]);
-    bins[Math.min(Math.floor(s/binWidth),nBins-1)]++;
-  }
-  for (let i=0;i<nBins;i++) bins[i]/=(N*binWidth);
-
-  let maxD=0; for (let i=0;i<nBins;i++) if(bins[i]>maxD) maxD=bins[i];
-  let maxA=0; for (let i=0;i<nBins;i++) {
-    const v=(i+0.5)*binWidth, fv=(v/T)*Math.exp(-v*v/(2*T));
-    if(fv>maxA) maxA=fv;
-  }
-  const yMax = Math.max(maxD,maxA)*1.1;
-  const mg={left:35,right:10,top:10,bottom:20}, pW=W-mg.left-mg.right, pH=H-mg.top-mg.bottom;
-
-  histCtx.fillStyle='rgba(42,157,143,0.5)';
-  for (let i=0;i<nBins;i++) {
-    histCtx.fillRect(mg.left+(i/nBins)*pW, mg.top+pH-(bins[i]/yMax)*pH, pW/nBins-1, (bins[i]/yMax)*pH);
-  }
-  histCtx.strokeStyle='#e76f51'; histCtx.lineWidth=2; histCtx.beginPath();
-  for (let px=0;px<pW;px++) {
-    const v=(px/pW)*maxSpeed, fv=(v/T)*Math.exp(-v*v/(2*T));
-    const py=mg.top+pH-(fv/yMax)*pH;
-    px===0?histCtx.moveTo(mg.left+px,py):histCtx.lineTo(mg.left+px,py);
-  }
-  histCtx.stroke();
-
-  histCtx.strokeStyle='#445'; histCtx.lineWidth=1; histCtx.beginPath();
-  histCtx.moveTo(mg.left,mg.top); histCtx.lineTo(mg.left,mg.top+pH);
-  histCtx.lineTo(mg.left+pW,mg.top+pH); histCtx.stroke();
-
-  histCtx.fillStyle='#667'; histCtx.font='10px Courier New';
-  histCtx.textAlign='center'; histCtx.fillText('speed',mg.left+pW/2,H-2);
-  histCtx.textAlign='left'; histCtx.fillText('f(v)',0,mg.top+10);
-  histCtx.fillStyle='#e76f51'; histCtx.fillText('— theory',mg.left+pW-65,mg.top+12);
-  histCtx.fillStyle='rgba(42,157,143,0.8)'; histCtx.fillText('█ sim',mg.left+pW-65,mg.top+24);
-}
-
-function renderTimeSeries(ctx, canvas, history, label, color, showZeroLine) {
-  const W=canvas.width, H=canvas.height;
-  ctx.clearRect(0,0,W,H);
-  if (history.length<2) return;
-
-  const mg={left:45,right:10,top:10,bottom:20}, pW=W-mg.left-mg.right, pH=H-mg.top-mg.bottom;
-  let minV=Infinity, maxV=-Infinity;
-  for (const [,v] of history) { if(v<minV) minV=v; if(v>maxV) maxV=v; }
-  const range=maxV-minV||1;
-  minV-=range*0.1; maxV+=range*0.1;
-
-  if (showZeroLine && minV<0 && maxV>0) {
-    const zy = mg.top+pH-((0-minV)/(maxV-minV))*pH;
-    ctx.strokeStyle='#445'; ctx.setLineDash([4,4]); ctx.beginPath();
-    ctx.moveTo(mg.left,zy); ctx.lineTo(mg.left+pW,zy); ctx.stroke(); ctx.setLineDash([]);
-  }
-
-  const tMin=history[0][0], tRange=history[history.length-1][0]-tMin||1;
-  ctx.strokeStyle=color; ctx.lineWidth=1.5; ctx.beginPath();
-  for (let i=0;i<history.length;i++) {
-    const px=mg.left+((history[i][0]-tMin)/tRange)*pW;
-    const py=mg.top+pH-((history[i][1]-minV)/(maxV-minV))*pH;
-    i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
-  }
-  ctx.stroke();
-
-  ctx.strokeStyle='#445'; ctx.lineWidth=1; ctx.beginPath();
-  ctx.moveTo(mg.left,mg.top); ctx.lineTo(mg.left,mg.top+pH);
-  ctx.lineTo(mg.left+pW,mg.top+pH); ctx.stroke();
-
-  ctx.fillStyle='#667'; ctx.font='10px Courier New';
-  ctx.textAlign='center'; ctx.fillText('time',mg.left+pW/2,H-2);
-  ctx.textAlign='right';
-  ctx.fillText(maxV.toFixed(3),mg.left-3,mg.top+10);
-  ctx.fillText(minV.toFixed(3),mg.left-3,mg.top+pH);
-  ctx.textAlign='left'; ctx.fillText(label,2,mg.top+10);
-}
-
-function renderSweep() {
-  const W=sweepCanvas.width, H=sweepCanvas.height;
-  sweepCtx.clearRect(0,0,W,H);
-
-  const mg={left:45,right:10,top:10,bottom:20}, pW=W-mg.left-mg.right, pH=H-mg.top-mg.bottom;
-
-  // Compute Y scale including baselines
-  let maxDT=0;
-  for (const r of sweepResults) if(Math.abs(r.finalDT)>maxDT) maxDT=Math.abs(r.finalDT);
-  if (baselineFixedDT!==null && Math.abs(baselineFixedDT)>maxDT) maxDT=Math.abs(baselineFixedDT);
-  if (baselineAdaptiveDT!==null && Math.abs(baselineAdaptiveDT)>maxDT) maxDT=Math.abs(baselineAdaptiveDT);
-  maxDT = maxDT*1.2 || 0.1;
-
-  // Draw baseline horizontal lines
-  if (baselineFixedDT !== null) {
-    const by = mg.top + pH - (baselineFixedDT/maxDT)*pH;
-    sweepCtx.strokeStyle='#e76f51'; sweepCtx.lineWidth=1.5;
-    sweepCtx.setLineDash([8,4]); sweepCtx.beginPath();
-    sweepCtx.moveTo(mg.left,by); sweepCtx.lineTo(mg.left+pW,by);
-    sweepCtx.stroke(); sweepCtx.setLineDash([]);
-  }
-  if (baselineAdaptiveDT !== null) {
-    const by = mg.top + pH - (baselineAdaptiveDT/maxDT)*pH;
-    sweepCtx.strokeStyle='#2a9d8f'; sweepCtx.lineWidth=1.5;
-    sweepCtx.setLineDash([8,4]); sweepCtx.beginPath();
-    sweepCtx.moveTo(mg.left,by); sweepCtx.lineTo(mg.left+pW,by);
-    sweepCtx.stroke(); sweepCtx.setLineDash([]);
-  }
-
-  if (sweepResults.length === 0) {
-    // Still draw axes and baselines even before local sweep starts
-    sweepCtx.strokeStyle='#445'; sweepCtx.lineWidth=1; sweepCtx.beginPath();
-    sweepCtx.moveTo(mg.left,mg.top); sweepCtx.lineTo(mg.left,mg.top+pH);
-    sweepCtx.lineTo(mg.left+pW,mg.top+pH); sweepCtx.stroke();
-    renderSweepLegend(mg, pW, pH);
-    return;
-  }
-
-  // Draw local sweep points
-  sweepCtx.fillStyle='#e9c46a';
-  for (const r of sweepResults) {
-    const px = mg.left + r.rL * pW;
-    const py = mg.top + pH - (r.finalDT/maxDT)*pH;
-    sweepCtx.beginPath();
-    sweepCtx.arc(px,py,4,0,2*Math.PI);
-    sweepCtx.fill();
-  }
-
-  // Connect with line
-  if (sweepResults.length>1) {
-    const sorted = [...sweepResults].sort((a,b)=>a.rL-b.rL);
-    sweepCtx.strokeStyle='#e9c46a'; sweepCtx.lineWidth=1.5; sweepCtx.beginPath();
-    for (let i=0;i<sorted.length;i++) {
-      const px = mg.left + sorted[i].rL * pW;
-      const py = mg.top + pH - (sorted[i].finalDT/maxDT)*pH;
-      i===0?sweepCtx.moveTo(px,py):sweepCtx.lineTo(px,py);
-    }
-    sweepCtx.stroke();
-  }
-
-  // Axes
-  sweepCtx.strokeStyle='#445'; sweepCtx.lineWidth=1; sweepCtx.beginPath();
-  sweepCtx.moveTo(mg.left,mg.top); sweepCtx.lineTo(mg.left,mg.top+pH);
-  sweepCtx.lineTo(mg.left+pW,mg.top+pH); sweepCtx.stroke();
-
-  sweepCtx.fillStyle='#667'; sweepCtx.font='10px Courier New';
-  sweepCtx.textAlign='center'; sweepCtx.fillText('r/L',mg.left+pW/2,H-2);
-  sweepCtx.textAlign='right';
-  sweepCtx.fillText(maxDT.toFixed(2),mg.left-3,mg.top+10);
-  sweepCtx.fillText('0',mg.left-3,mg.top+pH);
-
-  renderSweepLegend(mg, pW, pH);
-}
-
-function renderSweepLegend(mg, pW, pH) {
-  sweepCtx.font='9px Courier New'; sweepCtx.textAlign='left';
-  let ly = mg.top + 10;
-  sweepCtx.fillStyle='#e9c46a'; sweepCtx.fillText('— local',mg.left+4,ly);
-  ly += 11;
-  if (baselineFixedDT !== null) {
-    sweepCtx.fillStyle='#e76f51'; sweepCtx.fillText('-- fixed',mg.left+4,ly);
-    ly += 11;
-  }
-  if (baselineAdaptiveDT !== null) {
-    sweepCtx.fillStyle='#2a9d8f'; sweepCtx.fillText('-- adaptive',mg.left+4,ly);
-  }
-}
-
-function renderSweepTime() {
-  const W=timeCanvas.width, H=timeCanvas.height;
-  timeCtx.clearRect(0,0,W,H);
-
-  const mg={left:45,right:10,top:10,bottom:20}, pW=W-mg.left-mg.right, pH=H-mg.top-mg.bottom;
-
-  // Compute Y scale from all times
-  let maxTime = 0;
-  if (baselineFixedTime !== null && baselineFixedTime > maxTime) maxTime = baselineFixedTime;
-  if (baselineAdaptiveTime !== null && baselineAdaptiveTime > maxTime) maxTime = baselineAdaptiveTime;
-  for (const r of sweepResults) if (r.steadyT > maxTime) maxTime = r.steadyT;
-  maxTime = maxTime * 1.2 || 100;
-
-  // Baseline horizontal lines
-  if (baselineFixedTime !== null) {
-    const by = mg.top + pH - (baselineFixedTime/maxTime)*pH;
-    timeCtx.strokeStyle='#e76f51'; timeCtx.lineWidth=1.5;
-    timeCtx.setLineDash([8,4]); timeCtx.beginPath();
-    timeCtx.moveTo(mg.left,by); timeCtx.lineTo(mg.left+pW,by);
-    timeCtx.stroke(); timeCtx.setLineDash([]);
-  }
-  if (baselineAdaptiveTime !== null) {
-    const by = mg.top + pH - (baselineAdaptiveTime/maxTime)*pH;
-    timeCtx.strokeStyle='#2a9d8f'; timeCtx.lineWidth=1.5;
-    timeCtx.setLineDash([8,4]); timeCtx.beginPath();
-    timeCtx.moveTo(mg.left,by); timeCtx.lineTo(mg.left+pW,by);
-    timeCtx.stroke(); timeCtx.setLineDash([]);
-  }
-
-  // Local sweep points
-  if (sweepResults.length > 0) {
-    timeCtx.fillStyle='#e9c46a';
-    for (const r of sweepResults) {
-      const px = mg.left + r.rL * pW;
-      const py = mg.top + pH - (r.steadyT/maxTime)*pH;
-      timeCtx.beginPath(); timeCtx.arc(px,py,4,0,2*Math.PI); timeCtx.fill();
-    }
-    if (sweepResults.length > 1) {
-      const sorted = [...sweepResults].sort((a,b)=>a.rL-b.rL);
-      timeCtx.strokeStyle='#e9c46a'; timeCtx.lineWidth=1.5; timeCtx.beginPath();
-      for (let i=0;i<sorted.length;i++) {
-        const px = mg.left + sorted[i].rL * pW;
-        const py = mg.top + pH - (sorted[i].steadyT/maxTime)*pH;
-        i===0?timeCtx.moveTo(px,py):timeCtx.lineTo(px,py);
-      }
-      timeCtx.stroke();
-    }
-  }
-
-  // Axes
-  timeCtx.strokeStyle='#445'; timeCtx.lineWidth=1; timeCtx.beginPath();
-  timeCtx.moveTo(mg.left,mg.top); timeCtx.lineTo(mg.left,mg.top+pH);
-  timeCtx.lineTo(mg.left+pW,mg.top+pH); timeCtx.stroke();
-
-  timeCtx.fillStyle='#667'; timeCtx.font='10px Courier New';
-  timeCtx.textAlign='center'; timeCtx.fillText('r/L',mg.left+pW/2,H-2);
-  timeCtx.textAlign='right';
-  timeCtx.fillText(maxTime.toFixed(0),mg.left-3,mg.top+10);
-  timeCtx.fillText('0',mg.left-3,mg.top+pH);
-  timeCtx.textAlign='left'; timeCtx.fillText('t',2,mg.top+10);
-
-  // Legend
-  timeCtx.font='9px Courier New';
-  let ly = mg.top + 10;
-  timeCtx.fillStyle='#e9c46a'; timeCtx.fillText('— local',mg.left+4,ly); ly+=11;
-  if (baselineFixedTime !== null) {
-    timeCtx.fillStyle='#e76f51'; timeCtx.fillText('-- fixed',mg.left+4,ly); ly+=11;
-  }
-  if (baselineAdaptiveTime !== null) {
-    timeCtx.fillStyle='#2a9d8f'; timeCtx.fillText('-- adaptive',mg.left+4,ly);
-  }
-}
-
-// ============================================================
-// Stats
-// ============================================================
-function updateStats() {
-  const ke = computeKE();
-  const drift = initialKE>0 ? ((ke-initialKE)/initialKE*100) : 0;
-  const { tL, tR, nL, nR } = computeSideTemps();
-  const currentS = computeEntropy(tL, nL, tR, nR);
-  const deltaS = (currentS - initialS) / N;
-
-  document.getElementById('statTL').textContent = tL.toFixed(3);
-  document.getElementById('statTR').textContent = tR.toFixed(3);
-  document.getElementById('statNL').textContent = nL;
-  document.getElementById('statNR').textContent = nR;
-  document.getElementById('statDS').textContent = deltaS.toFixed(4);
-
-  const driftEl = document.getElementById('statDrift');
-  driftEl.textContent = drift.toFixed(4)+'%';
-  driftEl.className = Math.abs(drift)>0.1?'warn':'ok';
-
-  document.getElementById('statBits').textContent = totalBits.toFixed(1);
-  document.getElementById('statFPS').textContent = currentFps;
-  document.getElementById('statTime').textContent = simTime.toFixed(1);
-
-  const steadyEl = document.getElementById('statSteady');
-  if (isSteady) {
-    steadyEl.textContent = 'STEADY @ t='+steadyTime.toFixed(1);
-    steadyEl.className = 'ok';
-  } else {
-    steadyEl.textContent = '';
-  }
-}
-
-// ============================================================
-// Main loop
-// ============================================================
-const STEPS_PER_FRAME = 5;
-let renderCounter = 0;
-
-function loop() {
-  if (!running) return;
-
-  for (let s=0;s<STEPS_PER_FRAME;s++) step();
-
-  renderSim();
-  renderCounter++;
-  if (renderCounter%10===0) {
-    renderHistogram();
-    renderTimeSeries(dtCtx, dtCanvas, dtHistory, 'ΔT', '#e9c46a', true);
-    renderTimeSeries(dsCtx, dsCanvas, dsHistory, 'ΔS/N', '#2a9d8f', true);
-    updateStats();
-  }
-
-  frameCount++;
-  const now = performance.now();
-  if (now-lastFpsTime>=1000) { currentFps=frameCount; frameCount=0; lastFpsTime=now; }
-
-  // If sweep mode: check if we've reached steady state or max time
-  if (sweepRunning) {
-    const SWEEP_MAX_TIME = 800;
-    if (isSteady || simTime >= SWEEP_MAX_TIME) {
-      finishSweepStep();
-      return;
-    }
-  }
-
-  animId = requestAnimationFrame(loop);
-}
-
-// ============================================================
-// r-Sweep
-// ============================================================
-function saveInitialState() {
-  savedN = N;
-  savedX = new Float64Array(x);
-  savedY = new Float64Array(y);
-  savedVx = new Float64Array(vx);
-  savedVy = new Float64Array(vy);
-  savedMeanSpeed = initialMeanSpeed;
-  savedKE = initialKE;
-  savedS = initialS;
-}
-
-function restoreInitialState() {
-  N = savedN;
-  x = new Float64Array(savedX);
-  y = new Float64Array(savedY);
-  vx = new Float64Array(savedVx);
-  vy = new Float64Array(savedVy);
-  initialMeanSpeed = savedMeanSpeed;
-  initialKE = savedKE;
-  simTime = 0; totalBits = 0;
-  keHistory = []; dtHistory = []; dsHistory = [];
-  isSteady = false; steadyTime = null; peakDT = 0;
-  const s0 = computeSideTemps();
-  initialS = computeEntropy(s0.tL, s0.nL, s0.tR, s0.nR);
-}
-
-function startSweep() {
-  if (sweepRunning) return;
-  sweepRunning = true;
-  sweepResults = [];
-  sweepRValues = [];
-  baselineFixedDT = null; baselineFixedTime = null;
-  baselineAdaptiveDT = null; baselineAdaptiveTime = null;
-  for (let r=0.02; r<=1.01; r+=0.07) sweepRValues.push(Math.min(r,1.0));
-  sweepIdx = 0;
-  sweepPhase = 'baseline-fixed';
-  document.getElementById('btnSweep').disabled = true;
-  document.getElementById('btnStartPause').disabled = true;
-
-  // Initialize once and save — all sweep runs start from this state
-  const p = readParams();
-  doorFraction = p.door;
-  init(p.N, p.T, p.R);
-  saveInitialState();
-
-  runSweepPhase();
-}
-
-function runSweepPhase() {
-  if (sweepPhase === 'baseline-fixed') {
-    document.getElementById('sweepStatus').textContent = 'Sweep: running classical (fixed) baseline...';
-    demonType = 'classical-fixed';
-    restoreInitialState();
-    running = true;
-    loop();
-  } else if (sweepPhase === 'baseline-adaptive') {
-    document.getElementById('sweepStatus').textContent = 'Sweep: running classical (adaptive) baseline...';
-    demonType = 'classical-adaptive';
-    restoreInitialState();
-    running = true;
-    loop();
-  } else if (sweepPhase === 'local') {
-    runLocalSweepStep();
-  }
-}
-
-function runLocalSweepStep() {
-  if (sweepIdx >= sweepRValues.length) {
-    finishSweep();
-    return;
-  }
-  const rL = sweepRValues[sweepIdx];
-  document.getElementById('sweepStatus').textContent =
-    `Sweep: r/L = ${rL.toFixed(2)} (${sweepIdx+1}/${sweepRValues.length})`;
-
-  demonType = 'local';
-  localRadiusFrac = rL;
-  restoreInitialState();
-  running = true;
-  loop();
-}
-
-function finishSweepStep() {
-  running = false;
-  const { tR, tL, nL, nR } = computeSideTemps();
-  const currentS = computeEntropy(tL, nL, tR, nR);
-  const deltaS = (currentS - initialS) / N;
-  const finalDT = tR - tL;
-
-  if (sweepPhase === 'baseline-fixed') {
-    baselineFixedDT = finalDT;
-    baselineFixedTime = steadyTime || simTime;
-    sweepPhase = 'baseline-adaptive';
-    renderSweep(); renderSweepTime();
-    setTimeout(runSweepPhase, 50);
-  } else if (sweepPhase === 'baseline-adaptive') {
-    baselineAdaptiveDT = finalDT;
-    baselineAdaptiveTime = steadyTime || simTime;
-    sweepPhase = 'local';
-    renderSweep(); renderSweepTime();
-    setTimeout(runSweepPhase, 50);
-  } else {
-    sweepResults.push({
-      rL: sweepRValues[sweepIdx],
-      finalDT,
-      finalDS: deltaS,
-      bits: totalBits,
-      steadyT: steadyTime || simTime,
-    });
-    renderSweep(); renderSweepTime();
-    sweepIdx++;
-    setTimeout(runLocalSweepStep, 50);
-  }
-}
-
-function finishSweep() {
-  sweepRunning = false;
-  running = false;
-  document.getElementById('btnSweep').disabled = false;
-  document.getElementById('btnStartPause').disabled = false;
-  document.getElementById('btnStartPause').textContent = 'Start';
-  document.getElementById('sweepStatus').textContent =
-    `Sweep complete! ${sweepResults.length} points.`;
-  renderSweep();
-}
-
-// ============================================================
-// CSV Export
-// ============================================================
-function exportCSV() {
-  let csv = 'time,KE,deltaT,deltaS_per_particle\n';
-  const maxLen = Math.max(keHistory.length, dtHistory.length, dsHistory.length);
-  for (let i=0;i<maxLen;i++) {
-    const t = keHistory[i] ? keHistory[i][0].toFixed(4) : '';
-    const ke = keHistory[i] ? keHistory[i][1].toFixed(6) : '';
-    const dT = dtHistory[i] ? dtHistory[i][1].toFixed(6) : '';
-    const dS = dsHistory[i] ? dsHistory[i][1].toFixed(6) : '';
-    csv += `${t},${ke},${dT},${dS}\n`;
-  }
-
-  // Add sweep results if present
-  if (sweepResults.length > 0 || baselineFixedDT !== null) {
-    csv += '\n\nr_sweep_results\n';
-    if (baselineFixedDT !== null) csv += `baseline_classical_fixed_deltaT,${baselineFixedDT.toFixed(6)}\n`;
-    if (baselineAdaptiveDT !== null) csv += `baseline_classical_adaptive_deltaT,${baselineAdaptiveDT.toFixed(6)}\n`;
-    csv += 'r_over_L,final_deltaT,final_deltaS,total_bits,steady_time\n';
-    for (const r of sweepResults) {
-      csv += `${r.rL.toFixed(4)},${r.finalDT.toFixed(6)},${r.finalDS.toFixed(6)},${r.bits.toFixed(2)},${r.steadyT.toFixed(2)}\n`;
-    }
-  }
-
-  const blob = new Blob([csv], {type:'text/csv'});
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `box_of_gas_${demonType}_${new Date().toISOString().slice(0,16)}.csv`;
-  a.click();
-}
-
 // ============================================================
 // Controls
 // ============================================================
@@ -1056,12 +166,65 @@ function updateSliderDisplays() {
     document.getElementById('selectDemon').value==='local' ? '' : 'none';
 }
 
-document.querySelectorAll('.controls input, .controls select').forEach(el => {
-  el.addEventListener('input', updateSliderDisplays);
+const controlElements = document.querySelectorAll('.controls input, .controls select');
+controlElements.forEach(el => {
+  const handleControlChange = () => {
+    updateSliderDisplays();
+    if (!running) initialized = false;
+  };
+  el.addEventListener('input', handleControlChange);
+  if (el.tagName === 'SELECT') {
+    el.addEventListener('change', handleControlChange);
+  }
 });
 
+// ============================================================
+// Main loop
+// ============================================================
+const STEPS_PER_FRAME = 5;
+const SWEEP_STEADY_HOLD = 40;
+const MIN_SWEEP_TIME_BASELINE = 400;
+const MIN_SWEEP_TIME_LOCAL = 200;
+let renderCounter = 0;
 let initialized = false;
 
+function loop() {
+  if (!running) return;
+
+  for (let s=0;s<STEPS_PER_FRAME;s++) step();
+
+  renderSim();
+  renderCounter++;
+  if (renderCounter%10===0) {
+    renderHistogram();
+    renderTimeSeries(dtCtx, dtCanvas, dtHistory, 'ΔT', '#e9c46a', true);
+    renderTimeSeries(dsCtx, dsCanvas, dsHistory, 'ΔS/N', '#2a9d8f', true);
+    updateStats();
+  }
+
+  updateFPS();
+
+  if (sweepRunning) {
+    const SWEEP_MAX_TIME = 800;
+    const phase = typeof sweepPhase !== 'undefined' ? sweepPhase : 'idle';
+    const minTime = (phase === 'baseline-fixed' || phase === 'baseline-adaptive')
+      ? MIN_SWEEP_TIME_BASELINE
+      : MIN_SWEEP_TIME_LOCAL;
+    const steadyHoldMet = isSteady && steadyTime !== null &&
+      (simTime - steadyTime) >= SWEEP_STEADY_HOLD &&
+      simTime >= minTime;
+    if (steadyHoldMet || simTime >= SWEEP_MAX_TIME) {
+      finishSweepStep();
+      return;
+    }
+  }
+
+  animId = requestAnimationFrame(loop);
+}
+
+// ============================================================
+// Button handlers
+// ============================================================
 document.getElementById('btnStartPause').addEventListener('click', () => {
   if (running) {
     running = false;
@@ -1080,33 +243,36 @@ document.getElementById('btnStartPause').addEventListener('click', () => {
 });
 
 document.getElementById('btnReset').addEventListener('click', () => {
-  running=false; initialized=false; sweepRunning=false;
+  running=false; sweepRunning=false;
   if (animId) cancelAnimationFrame(animId);
   document.getElementById('btnStartPause').textContent = 'Start';
   document.getElementById('btnStartPause').disabled = false;
   document.getElementById('btnSweep').disabled = false;
-  document.getElementById('sweepStatus').textContent = '';
   const p = readParams();
   doorFraction=p.door; demonType=p.demon; localRadiusFrac=p.localR;
   init(p.N, p.T, p.R);
+  initialized = true;
   renderSim(); renderHistogram();
   renderTimeSeries(dtCtx,dtCanvas,dtHistory,'ΔT','#e9c46a',true);
   renderTimeSeries(dsCtx,dsCanvas,dsHistory,'ΔS/N','#2a9d8f',true);
   updateStats();
+  resetSweepData();
 });
 
 document.getElementById('btnSweep').addEventListener('click', startSweep);
 document.getElementById('btnExport').addEventListener('click', exportCSV);
 
 // ============================================================
-// Init
+// Initial render
 // ============================================================
 updateSliderDisplays();
 {
   const p = readParams();
   doorFraction=p.door; demonType=p.demon; localRadiusFrac=p.localR;
   init(p.N, p.T, p.R);
+  initialized = true;
   renderSim(); renderHistogram(); updateStats();
+  resetSweepData();
 }
 </script>
 
