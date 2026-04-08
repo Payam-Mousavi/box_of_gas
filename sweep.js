@@ -177,7 +177,9 @@ function exportCSV() {
   if (sweepResults.length > 0 || baselineFixedDT !== null) {
     csv += '\n\nr_sweep_results\n';
     if (baselineFixedDT !== null) csv += `baseline_classical_fixed_deltaT,${baselineFixedDT.toFixed(6)}\n`;
+    if (baselineFixedTime !== null) csv += `baseline_classical_fixed_steady_time,${baselineFixedTime.toFixed(2)}\n`;
     if (baselineAdaptiveDT !== null) csv += `baseline_classical_adaptive_deltaT,${baselineAdaptiveDT.toFixed(6)}\n`;
+    if (baselineAdaptiveTime !== null) csv += `baseline_classical_adaptive_steady_time,${baselineAdaptiveTime.toFixed(2)}\n`;
     csv += 'r_over_L,final_deltaT,final_deltaS,total_bits,steady_time\n';
     for (const r of sweepResults) {
       csv += `${r.rL.toFixed(4)},${r.finalDT.toFixed(6)},${r.finalDS.toFixed(6)},${r.bits.toFixed(2)},${r.steadyT.toFixed(2)}\n`;

@@ -182,7 +182,7 @@ def plot_sweep_delta_t(samples: List[SweepSample], baselines: Dict[str, float], 
   return out_path, fig
 
 
-def plot_sweep_time(samples: List[SweepSample], out_dir: Path, keep_open: bool = False):
+def plot_sweep_time(samples: List[SweepSample], baselines: Dict[str, float], out_dir: Path, keep_open: bool = False):
   if not samples:
     return None, None
   samples_sorted = sorted(samples, key=lambda s: s.r_over_l)
@@ -190,11 +190,20 @@ def plot_sweep_time(samples: List[SweepSample], out_dir: Path, keep_open: bool =
   t = [s.steady_time for s in samples_sorted]
 
   fig, ax = plt.subplots(figsize=(7, 4))
-  ax.plot(r, t, marker="o", color="#90be6d")
+  ax.plot(r, t, marker="o", color="#90be6d", label="Local demon")
+
+  fixed_time = baselines.get("baseline_classical_fixed_steady_time")
+  if fixed_time is not None:
+    ax.axhline(fixed_time, color="#e76f51", ls="--", label="Classical (fixed)")
+  adaptive_time = baselines.get("baseline_classical_adaptive_steady_time")
+  if adaptive_time is not None:
+    ax.axhline(adaptive_time, color="#2a9d8f", ls="--", label="Classical (adaptive)")
+
   ax.set_xlabel("r / L")
   ax.set_ylabel("Time to steady state")
   ax.set_title("r-Sweep Convergence Time")
   ax.grid(alpha=0.3)
+  ax.legend()
 
   out_path = out_dir / "sweep_time.png"
   fig.tight_layout()
@@ -260,7 +269,7 @@ def describe(samples: List[TimeSample], sweep_samples: List[SweepSample], baseli
     max_ds = max(samples, key=lambda s: s.delta_s)
     print(f"Max ΔS/N: {max_ds.delta_s:.4f} at t={max_ds.time:.2f}")
   if sweep_samples:
-    best = max(sweep_samples, key=lambda s: s.final_delta_t)
+    best = max(sweep_samples, key=lambda s: abs(s.final_delta_t))
     print(f"Best local policy: r/L={best.r_over_l:.2f}, ΔT={best.final_delta_t:.4f}, ΔS/N={best.final_delta_s:.5f}")
   if baselines:
     for name, val in baselines.items():
@@ -296,7 +305,7 @@ def main() -> None:
   for func in (
     lambda keep: plot_time_series(time_series, out_dir_path, keep),
     lambda keep: plot_sweep_delta_t(sweep_samples, baselines, out_dir_path, keep),
-    lambda keep: plot_sweep_time(sweep_samples, out_dir_path, keep),
+    lambda keep: plot_sweep_time(sweep_samples, baselines, out_dir_path, keep),
     lambda keep: plot_bits_vs_r(sweep_samples, out_dir_path, keep),
     lambda keep: plot_entropy_vs_delta_t(sweep_samples, out_dir_path, keep),
   ):
