@@ -25,6 +25,29 @@ uv run box-of-gas-analyze path/to/export.csv --out plots/
 
 The CLI depends only on `matplotlib` and is packaged via `pyproject.toml` so you can `uv tool install .` or run it directly with `uv run`.
 
+## Automated Experiments
+
+Use `experiments.py` to drive the in-browser simulator headlessly via Playwright, run multiple r-sweeps, download each CSV, and optionally regenerate the analysis plots:
+
+```bash
+cd box_of_gas
+uv run playwright install chromium    # first time only
+uv run python experiments.py --out experiments_out
+```
+
+The script now defaults to eight consecutive seeds (1000–1007) and a longer sweep timeout (2400 s). Command-line options let you control particle count, temperature, radius, door width, seed range, and whether plots are generated. Outputs include timestamped CSV/plot folders plus a JSON summary with per-run stats.
+
+### Updating Report Assets
+
+After running a batch of experiments, regenerate the figures used by `REPORT.md` / `report.docx` directly from the latest summary:
+
+```bash
+cd box_of_gas
+uv run python build_report_plots.py --summary experiments_out/experiments_summary_YYYYMMDDTHHMMSSZ.json
+```
+
+If `--summary` is omitted, the script picks the newest summary in `experiments_out/`. The resulting PNGs land in `report_plots/`.
+
 ## Concept
 
 ### Four Regimes

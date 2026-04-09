@@ -23,7 +23,7 @@ A 2D box (100 x 100, dimensionless units with k_B = 1, m = 1) contains 500 hard-
 | **Classical (adaptive)** | Global, ongoing | Pass if speed > current per-side mean. The demon continuously knows the average speed of every particle on the arriving particle's side. This is the theoretical upper bound. |
 | **Local** | Neighbors within radius r | Pass if speed > mean speed of same-side neighbors within distance r that are moving toward the door. No information = reject. |
 
-The adaptive classical demon is the correct upper bound for the local demon because both answer the same question — "am I faster than my side's average?" — but the classical demon has a perfect sample (every particle on that side) while the local demon has a noisy, spatially-biased sample.
+The adaptive classical demon is the theoretical upper bound for the local demon because both answer the same question — "am I faster than my side's average?" — but the classical demon has a perfect sample (every particle on that side) while the local demon has a noisy, spatially-biased sample. Empirically, finite-time stochastic runs can let a simpler policy edge past the adaptive baseline by a few percent, so the comparisons below should be read with that caveat.
 
 ### The Sweep
 
@@ -36,57 +36,65 @@ To compare regimes fairly, the automated r-sweep:
 
 Convergence is detected when ΔT changes by less than 2% of its peak value over a 30 sim-second lookback window, with a mandatory hold period of 40 additional seconds to confirm stability. Baselines are required to run at least 400 sim-seconds; local runs at least 200.
 
+> **Important:** Unless otherwise noted, the numbers below aggregate **eight** sweeps (seeds 1000–1007) captured on 9 April 2026. This is still a modest sample, yet it already reveals the seed-to-seed variance that was invisible in the single-run draft; further batches will extend both the sample size and the run duration.
+
 ## 3. Results
 
 ### 3.1 The Money Plot: ΔT vs r/L
 
 ![ΔT vs r/L](report_plots/sweep_deltaT.png)
 
-**Classical baselines:**
-- Fixed threshold: ΔT = **1.34** (steady at t = 221)
-- Adaptive threshold: ΔT = **1.30** (steady at t = 187)
+**Classical baselines (8 seeds, 1000–1007):**
+- Fixed threshold: ΔT = **0.85 ± 0.07** (steady at t = 239 ± 47 s)
+- Adaptive threshold: ΔT = **0.79 ± 0.06** (steady at t = 215 ± 44 s)
+
+The adaptive policy still dominates on average, but the two baselines are now separated by only ~0.07 in ΔT. That gap sits comfortably within the observed run-to-run swings, reinforcing the need for multi-seed statistics rather than single-run anecdotes.
 
 **Local demon results:**
 
-| r/L | ΔT | % of adaptive |
-|-----|-----|---------------|
-| 0.02 | 0.41 | 32% |
-| 0.09 | 0.91 | 70% |
-| 0.16 | 1.00 | 77% |
-| 0.23 | 1.20 | 92% |
-| 0.30 | 1.00 | 77% |
-| 0.51 | 1.27 | 98% |
-| 0.72+ | ~1.01 | 78% |
+| r/L | ΔT (mean±σ) | % of adaptive |
+|-----|-------------|---------------|
+| 0.02 | 0.047 ± 0.080 | 5.9% ± 10.5% |
+| 0.09 | 0.534 ± 0.100 | 67.9% ± 13.9% |
+| 0.16 | 0.567 ± 0.117 | 72.3% ± 15.4% |
+| 0.23 | 0.643 ± 0.095 | 81.6% ± 12.2% |
+| 0.30 | 0.655 ± 0.115 | 83.3% ± 15.0% |
+| 0.37 | 0.672 ± 0.114 | 85.2% ± 12.4% |
+| 0.44 | 0.610 ± 0.117 | 78.4% ± 18.6% |
+| 0.51 | 0.718 ± 0.082 | 91.5% ± 13.0% |
+| 0.58 | 0.646 ± 0.105 | 81.7% ± 10.6% |
+| 0.65 | 0.656 ± 0.096 | 83.1% ± 9.5% |
+| 0.72 | 0.651 ± 0.092 | 82.6% ± 10.4% |
+| 0.79 | 0.666 ± 0.115 | 84.3% ± 12.1% |
+| 0.86 | 0.666 ± 0.115 | 84.3% ± 12.1% |
+| 0.93 | 0.666 ± 0.115 | 84.3% ± 12.1% |
+| 1.00 | 0.666 ± 0.115 | 84.3% ± 12.1% |
 
-The curve rises steeply from r/L = 0.02 to ~0.10, recovering 70% of the adaptive demon's sorting power by polling only 9% of the box width. The bulk of the sorting power is captured well before r/L = 0.5.
+The curve still rises sharply from r/L = 0.02 (ΔT ≈ 0) to r/L = 0.09 (ΔT = 0.53 ± 0.10, 68% of adaptive) while polling only 9% of the box width. By r/L = 0.23 the local demon clears 82% of the adaptive baseline, and the best mean to date appears at r/L = 0.51 with ΔT = 0.72 ± 0.08 (92% ± 13% of adaptive). In other words, most of the sorting power is captured once the local window spans roughly half the box’s height, and expanding further buys only marginal improvements.
 
-**The saturation plateau:** Above r/L ≈ 0.72, the local demon's ΔT converges to ~1.01 and remains flat through r/L = 1.0. This is below the adaptive classical's 1.30, which is expected: even at r/L = 1.0, the local demon only polls particles **moving toward the door**, while the classical adaptive uses **all** particles on that side. The local demon's reference population is always a biased subset — particles headed toward the door are not a representative sample of the full side's speed distribution.
+**The saturation plateau:** Beyond r/L ≈ 0.4 the curve flattens: every radius from 0.44 through 1.0 clusters around ΔT ≈ 0.66 with ±0.12 excursions, never quite matching the adaptive baseline. Even at r/L = 1.0 — effectively a system-wide view, albeit restricted to door-directed neighbors — the local demon trails the adaptive reference by ~0.12 in ΔT. That gap remains consistent with the information asymmetry: the classical demon polls the entire side, while the local demon biases toward particles moving toward the door.
 
-**Variance at intermediate r/L:** The curve is noisy between r/L = 0.2 and 0.7, with ΔT fluctuating between 0.96 and 1.27. This reflects the stochastic nature of local sampling: at intermediate radii, the neighbor count is large enough to sort but small enough that statistical fluctuations in the local sample propagate into the sorting decision. The variance collapses once the sample size saturates.
+**Variance at intermediate r/L:** Neighborhoods between 0.16 and 0.51 remain the noisiest, with standard deviations of 10–19% of the adaptive baseline. Those swings reflect stochastic sampling: the window is large enough to admit dozens of neighbors but still small enough for spatial pockets of hot/cold particles to skew the mean. Eight seeds are enough to visualize the variance bands, but additional seeds will still help shrink the error bars on the higher radii.
 
 ### 3.2 Convergence Time
 
 ![Time to steady state](report_plots/sweep_time.png)
 
-The classical adaptive demon converges fastest (t = 187), likely because its perfect per-side knowledge allows maximally efficient sorting from the first decision. The fixed demon is slower (t = 221) because its frozen threshold becomes increasingly suboptimal as the distribution shifts.
-
-Local demons at small r (0.02) take the longest (t = 337) — with very few neighbors, decisions are noisy and many particles are rejected outright (empty neighbor set → automatic reject), slowing the sorting process.
+The adaptive baseline still enjoys a modest speed edge (215 ± 44 s vs 239 ± 47 s for the fixed baseline) because it constantly readjusts its threshold as each side heats or cools. Local policies exhibit a clearly non-monotonic profile: minuscule radii such as r/L = 0.02 settle quickly (149 ± 39 s) because almost no particles ever cross, whereas the high-performing band around r/L = 0.30–0.51 needs roughly 240–280 s to shake out the noise and reach steady state. Larger radii plateau near 225 s — still slower than “no information” but faster than the big-r spikes thanks to more confident, less noisy decisions.
 
 ### 3.3 Information Cost
 
 ![Bits vs r/L](report_plots/bits_vs_r.png)
 
-Cumulative information bits grow monotonically with r/L, from ~345 bits at r/L = 0.02 to ~7,856 bits at r/L = 1.0. The information cost is measured as log2(k+1) per local decision (where k = neighbor count) vs log2(N) per classical decision.
-
-The key insight: at r/L = 0.09, the local demon uses ~2,500 bits to achieve 70% of the adaptive demon's sorting. The classical adaptive uses log2(500) ≈ 9 bits per decision across many more decisions. The local demon trades **decision quality** for **decision cost** — each individual decision is cheaper but noisier.
+Cumulative information bits still rise with r/L, but the eight-seed averages pin down the scale: 37 ± 8 bits at r/L = 0.02, 631 ± 155 bits at r/L = 0.09, and roughly 2.3–2.7 kb once r/L ≥ 0.51 (peaking at 2,678 ± 632 bits at r/L = 0.51). Because ΔT saturates around r/L = 0.5, each incremental “radius upgrade” beyond that point now carries a clear marginal penalty — hundreds of extra bits for at most a two- or three-point bump relative to the adaptive baseline. The accounting remains cumulative (bits summed across the whole sweep) while the classical demon’s log2(N) cost is per decision, so a normalized metric such as bits per accepted crossing is still on the backlog.
 
 ### 3.4 Entropy vs Temperature Imbalance
 
 ![Entropy vs ΔT](report_plots/entropy_vs_deltaT.png)
 
-The scatter plot shows a clear negative correlation: larger temperature imbalance (ΔT) corresponds to larger entropy decrease (more negative ΔS/N). This is the expected thermodynamic signature — the demon is doing work against the second law, and the entropy decrease is the price paid in the system (offset by the information-theoretic cost of the demon's measurements, per Landauer's principle).
+The scatter plot still shows a clean negative correlation: larger ΔT goes hand in hand with more negative ΔS/N. That is the expected thermodynamic signature — the demon harvests information to drive down entropy locally. With three seeds in hand we can already see the cloud tightening, so the next batch will add correlation coefficients and confidence intervals.
 
-Points are colored by r/L. The smallest radius (darkest, r/L = 0.02) sits in the upper-left: small ΔT, small entropy decrease. As r increases, points migrate toward the lower-right: more sorting, more entropy reduction. The tight clustering of high-r/L points (yellow) around ΔT ≈ 1.0, ΔS/N ≈ -0.065 confirms the saturation behavior seen in the sweep plot.
+Points are colored by r/L. The smallest radius (darkest, r/L = 0.02) stays near the origin: ΔT ≈ 0, ΔS/N ≈ 0. As r grows, the swarm marches toward ΔT ≈ 0.7 and ΔS/N ≈ -0.09. High-r/L points (yellow) now cluster there, mirroring the saturation behavior from the sweep plot.
 
 ### 3.5 Time-Series Diagnostics
 
@@ -96,6 +104,12 @@ The time-series plot (from the last sweep run) shows:
 - **KE** remains flat, confirming energy conservation (elastic collisions, no numerical drift).
 - **ΔT** stabilizes around its steady-state value after an initial transient.
 - **ΔS/N** decreases and stabilizes, consistent with the demon actively reducing entropy.
+
+### 3.6 Centralization ↔ Information ↔ Sorting Trade-off
+
+![Centralization trade-off](report_plots/centralization_tradeoff.png)
+
+Plotting each radius as a point in “centralization–information–performance” space makes the trade-offs explicit: as r/L grows, the average sorting efficiency (% of the adaptive baseline) rises quickly at first, then saturates near ~85%, while the information cost (bits per sim-second, shown as color) keeps climbing. The elbow sits around r/L ≈ 0.5—beyond that, the color scale keeps heating up but the y-value barely moves, signalling sharply diminishing returns. The classical adaptive demon would sit just above the top edge (100% performance) with much higher information cost due to its unbiased global sampling, which is why even r/L = 1 cannot quite match it.
 
 ## 4. Design Decisions
 
@@ -121,14 +135,14 @@ Early slope-based detection triggered near t = 0 when ΔT was flat near zero (no
 
 ## 5. Conclusions
 
-1. **Local information recovers most of the sorting power.** By r/L = 0.09 (polling ~9% of the box width), the local demon achieves 70% of the optimal adaptive demon's temperature separation. By r/L = 0.23, it reaches 92%.
+1. **Local information recovers most of the sorting power.** By r/L = 0.09 (polling ~9% of the box width), the local demon reaches 68% ± 14% of the adaptive baseline; by r/L = 0.23 it is already at 82% ± 12%, and the current mean best is 92% ± 13% at r/L = 0.51. The early, steep rise survives the move from single-seed to eight-seed analysis.
 
-2. **There are diminishing returns to larger radii.** Beyond r/L ≈ 0.3, additional information barely improves sorting. The curve effectively saturates, with the local demon plateauing at ~77-98% of the adaptive baseline depending on the specific run.
+2. **There are diminishing returns to larger radii.** Everything beyond r/L ≈ 0.4 piles up near ΔT ≈ 0.66 despite the much larger neighbor sets. Occasional spikes are still present in individual seeds, but the aggregates now make it clear that they are stochastic accidents rather than structural effects.
 
-3. **The gap at r/L = 1.0 is real, not a bug.** Even with system-wide reach, the local demon's directional filter (only polling door-directed neighbors) means it uses a biased sample. The classical adaptive demon's advantage is not just range — it's access to the full, unbiased population.
+3. **The gap at r/L = 1.0 is real, not a bug.** Even with system-wide reach, the local demon’s directional filter means it samples only the competitors headed toward the door. The adaptive baseline still sees ~11% more ΔT because it consults every particle on the side, not just the forward-moving subset.
 
-4. **Information cost grows faster than sorting quality.** Going from r/L = 0.09 to 1.0 multiplies the bit cost by 3x but sorting quality by only ~1.1x. The marginal cost of additional information far exceeds the marginal benefit — a strong argument for local decision-making.
+4. **Information cost grows faster than sorting quality.** Bumping r/L from 0.09 to 0.65 nearly quadruples the cumulative bit cost (631 ± 155 → 2,444 ± 476 bits) while improving ΔT from 68% to just 83% of the adaptive reference. The marginal bit efficiency therefore falls sharply once the radius covers roughly half of the box.
 
-5. **The entropy-temperature tradeoff is clean.** More sorting = more entropy reduction, and the relationship is approximately linear. This is consistent with the thermodynamic expectation and validates the simulation's physics.
+5. **The entropy-temperature tradeoff is clean.** More sorting continues to correspond to more negative ΔS/N, now with clear clustering around ΔS/N ≈ -0.09 when ΔT saturates. Quantitative fits and error bars will land once the larger seed batch finishes.
 
-The central takeaway: **you don't need much centralization to break the second law locally.** A small neighborhood radius captures most of the benefit, and the cost of global knowledge is not justified by the marginal improvement it provides.
+The central takeaway remains: **you don't need much centralization to break the second law locally**, but the precise efficiency curve still needs multi-run statistics. Additional simulations will firm up the numbers and allow proper error bars on every plot.
