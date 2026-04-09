@@ -6,8 +6,11 @@ readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
   "matplotlib>=3.7",
-  "playwright>=1.43",
+  "numpy>=1.24",
 ]
+
+[project.optional-dependencies]
+experiments = ["playwright>=1.43"]
 
 [project.scripts]
 box-of-gas-analyze = "analyze_export:main"

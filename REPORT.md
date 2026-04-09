@@ -72,7 +72,7 @@ The adaptive policy still dominates on average, but the two baselines are now se
 
 The curve still rises sharply from r/L = 0.02 (ΔT ≈ 0) to r/L = 0.09 (ΔT = 0.53 ± 0.10, 68% of adaptive) while polling only 9% of the box width. By r/L = 0.23 the local demon clears 82% of the adaptive baseline, and the best mean to date appears at r/L = 0.51 with ΔT = 0.72 ± 0.08 (92% ± 13% of adaptive). In other words, most of the sorting power is captured once the local window spans roughly half the box’s height, and expanding further buys only marginal improvements.
 
-**The saturation plateau:** Beyond r/L ≈ 0.4 the curve flattens: every radius from 0.44 through 1.0 clusters around ΔT ≈ 0.66 with ±0.12 excursions, never quite matching the adaptive baseline. Even at r/L = 1.0 — effectively a system-wide view, albeit restricted to door-directed neighbors — the local demon trails the adaptive reference by ~0.12 in ΔT. That gap remains consistent with the information asymmetry: the classical demon polls the entire side, while the local demon biases toward particles moving toward the door.
+**The saturation plateau:** Beyond r/L ≈ 0.4 the curve flattens: every radius from 0.44 through 1.0 clusters around ΔT ≈ 0.66 with ±0.12 excursions, never quite matching the adaptive baseline. Even at r/L = 1.0 — effectively a system-wide view, albeit restricted to door-directed neighbors — the local demon trails the adaptive reference by ~0.12 in ΔT. That gap remains consistent with the information asymmetry: the classical demon polls the entire side, while the local demon biases toward particles moving toward the door. Notably, r/L = 0.79 through 1.0 produce identical results (ΔT = 0.666 ± 0.115 across all four), confirming that the neighbor radius at r/L ≈ 0.79 already captures every door-directed particle on the arriving side — further increases change nothing.
 
 **Variance at intermediate r/L:** Neighborhoods between 0.16 and 0.51 remain the noisiest, with standard deviations of 10–19% of the adaptive baseline. Those swings reflect stochastic sampling: the window is large enough to admit dozens of neighbors but still small enough for spatial pockets of hot/cold particles to skew the mean. Eight seeds are enough to visualize the variance bands, but additional seeds will still help shrink the error bars on the higher radii.
 
@@ -86,15 +86,15 @@ The adaptive baseline still enjoys a modest speed edge (215 ± 44 s vs 239 ± 47
 
 ![Bits vs r/L](report_plots/bits_vs_r.png)
 
-Cumulative information bits still rise with r/L, but the eight-seed averages pin down the scale: 37 ± 8 bits at r/L = 0.02, 631 ± 155 bits at r/L = 0.09, and roughly 2.3–2.7 kb once r/L ≥ 0.51 (peaking at 2,678 ± 632 bits at r/L = 0.51). Because ΔT saturates around r/L = 0.5, each incremental “radius upgrade” beyond that point now carries a clear marginal penalty — hundreds of extra bits for at most a two- or three-point bump relative to the adaptive baseline. The accounting remains cumulative (bits summed across the whole sweep) while the classical demon’s log2(N) cost is per decision, so a normalized metric such as bits per accepted crossing is still on the backlog.
+Cumulative information bits still rise with r/L, but the eight-seed averages pin down the scale: 37 ± 8 bits at r/L = 0.02, 631 ± 155 bits at r/L = 0.09, peaking at 2,678 ± 632 bits at r/L = 0.51 before settling back to ~2,355 ± 562 for r/L ≥ 0.79 (the same saturation ceiling where the neighbor set stops growing). Because ΔT saturates around r/L = 0.5, each incremental “radius upgrade” beyond that point now carries a clear marginal penalty — hundreds of extra bits for at most a two- or three-point bump relative to the adaptive baseline. The accounting remains cumulative (bits summed across the whole sweep) while the classical demon’s log2(N) cost is per decision, so a normalized metric such as bits per accepted crossing is still on the backlog.
 
 ### 3.4 Entropy vs Temperature Imbalance
 
 ![Entropy vs ΔT](report_plots/entropy_vs_deltaT.png)
 
-The scatter plot still shows a clean negative correlation: larger ΔT goes hand in hand with more negative ΔS/N. That is the expected thermodynamic signature — the demon harvests information to drive down entropy locally. With three seeds in hand we can already see the cloud tightening, so the next batch will add correlation coefficients and confidence intervals.
+The scatter plot still shows a clean negative correlation: larger ΔT goes hand in hand with more negative ΔS/N. That is the expected thermodynamic signature — the demon harvests information to drive down entropy locally. With eight seeds in hand we can already see the cloud tightening, so the next batch will add correlation coefficients and confidence intervals.
 
-Points are colored by r/L. The smallest radius (darkest, r/L = 0.02) stays near the origin: ΔT ≈ 0, ΔS/N ≈ 0. As r grows, the swarm marches toward ΔT ≈ 0.7 and ΔS/N ≈ -0.09. High-r/L points (yellow) now cluster there, mirroring the saturation behavior from the sweep plot.
+Points are colored by r/L. The smallest radius (darkest, r/L = 0.02) stays near the origin: ΔT ≈ 0, ΔS/N ≈ 0. As r grows, the swarm marches toward ΔT ≈ 0.65 and ΔS/N ≈ -0.07. High-r/L points (yellow) now cluster there, mirroring the saturation behavior from the sweep plot.
 
 ### 3.5 Time-Series Diagnostics
 
@@ -118,6 +118,10 @@ Plotting each radius as a point in “centralization–information–performance
 Early versions used the global mean speed as the adaptive threshold. This caused the local demon to **appear to outperform** the classical demon at large r — which is theoretically impossible. The issue: as sorting progresses, the left side cools and the right side heats. A global threshold sits between the two shifted distributions and becomes increasingly poor. The local demon, by only polling same-side neighbors, naturally tracked the per-side distribution and gained an unfair advantage.
 
 The fix: both the adaptive classical and local demons now answer the identical question — "is this particle faster than its own side's average?" The classical demon simply has a perfect sample (all particles on that side), making it the true upper bound.
+
+### Why the fixed demon can outperform the adaptive demon in ΔT
+
+The data shows the fixed-threshold demon averaging ΔT = 0.85 vs the adaptive's 0.79. This is counterintuitive — the adaptive demon has strictly more information. The explanation lies in what each demon optimizes for. The fixed demon's frozen threshold drifts away from both sides' evolving means as sorting progresses, creating an increasingly aggressive filter that overshoots the equilibrium: it rejects many particles that a perfectly informed demon would let through, but this overselection produces a larger (if less thermodynamically stable) temperature gap. The adaptive demon, by continuously recalibrating to the true per-side mean, converges to a lower but more physically consistent steady state. In short, the fixed demon's "error" is biased in the direction of larger ΔT — it's wrong in a way that happens to inflate the metric we're measuring.
 
 ### Why arrival-only decisions with single-crossing enforcement
 

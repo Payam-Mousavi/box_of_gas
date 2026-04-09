@@ -208,7 +208,7 @@ def summarize_run(csv_path: Path, plots_root: Optional[Path], make_plots: bool) 
 
     peak_abs_dt = max((abs(s.delta_t) for s in time_series), default=None)
     max_entropy_drop = min((s.delta_s for s in time_series), default=None)
-    best_local = max(sweep_samples, key=lambda s: s.final_delta_t, default=None)
+    best_local = max(sweep_samples, key=lambda s: abs(s.final_delta_t), default=None)
     samples_payload = [
         {
             "r_over_l": s.r_over_l,
