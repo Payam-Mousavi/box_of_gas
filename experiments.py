@@ -48,10 +48,12 @@ class SweepRunSummary:
     baseline_adaptive_deltaT: Optional[float]
     baseline_fixed_steady_time: Optional[float]
     baseline_adaptive_steady_time: Optional[float]
+    baseline_fixed_run_time: Optional[float]
+    baseline_adaptive_run_time: Optional[float]
     best_local_deltaT: Optional[float]
     best_local_r: Optional[float]
     best_local_bits: Optional[float]
-    samples: List[Dict[str, float]]
+    samples: List[Dict[str, object]]
     peak_abs_deltaT: Optional[float]
     max_entropy_drop: Optional[float]
     plots: Dict[str, str]
@@ -216,6 +218,7 @@ def summarize_run(csv_path: Path, plots_root: Optional[Path], make_plots: bool) 
             "final_deltaS": s.final_delta_s,
             "total_bits": s.total_bits,
             "steady_time": s.steady_time,
+            "run_time": s.run_time,
         }
         for s in sweep_samples
     ]
@@ -247,6 +250,8 @@ def summarize_run(csv_path: Path, plots_root: Optional[Path], make_plots: bool) 
         baseline_adaptive_deltaT=baselines.get("baseline_classical_adaptive_deltaT"),
         baseline_fixed_steady_time=baselines.get("baseline_classical_fixed_steady_time"),
         baseline_adaptive_steady_time=baselines.get("baseline_classical_adaptive_steady_time"),
+        baseline_fixed_run_time=baselines.get("baseline_classical_fixed_run_time"),
+        baseline_adaptive_run_time=baselines.get("baseline_classical_adaptive_run_time"),
         best_local_deltaT=best_local.final_delta_t if best_local else None,
         best_local_r=best_local.r_over_l if best_local else None,
         best_local_bits=best_local.total_bits if best_local else None,

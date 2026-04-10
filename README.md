@@ -53,7 +53,7 @@ If `--summary` is omitted, the script picks the newest summary in `experiments_o
 ### Three Regimes
 
 1. **No demon (control):** Door is open, particles pass freely. Both sides equilibrate to the same temperature.
-2. **Classical Maxwell's demon (adaptive):** Uses the current per-side mean speed. "Is this particle faster than average for its side?" This is the true upper bound — the optimal use of global information, and the demon Maxwell originally described.
+2. **Classical Maxwell's demon (adaptive):** Uses the mean speed of all door-directed particles on the arriving side. "Is this particle faster than average among those headed for the door?" This is the true upper bound — the optimal use of global information, and the demon Maxwell originally described.
 3. **Local "swarm" demon:** Each particle, upon arriving at the door, polls same-side neighbors within radius `r`, compares its speed to the local average, and decides whether to cross. As `r` grows to include the entire box, this approaches the adaptive classical demon's behavior.
 
 ### The Money Plot
@@ -88,7 +88,7 @@ The automated **r-sweep** runs all three regimes from identical initial conditio
 
 ### Classical Demon Policy
 
-- **Adaptive threshold:** current per-side mean speed. Ongoing global knowledge. This is the correct upper bound because the local demon at large r also uses per-side information. Both answer the same question ("am I faster than my side's average?") — the classical demon just has a perfect sample.
+- **Adaptive threshold:** mean speed of all door-directed particles on the arriving side. Ongoing global knowledge. Both demons use the same reference population (particles moving toward the door on the same side) and answer the same question — the classical demon just has a perfect sample (no radius limit).
 
 ### Local Demon Policy
 

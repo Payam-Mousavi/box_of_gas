@@ -6,8 +6,8 @@ let sweepResults = [];
 let sweepRValues = [];
 let sweepIdx = 0;
 let sweepPhase = 'idle';
-let baselineFixedDT = null, baselineFixedTime = null; // unused — kept for render compat
-let baselineAdaptiveDT = null, baselineAdaptiveTime = null;
+let baselineFixedDT = null, baselineFixedTime = null, baselineFixedRunTime = null; // unused — kept for render compat
+let baselineAdaptiveDT = null, baselineAdaptiveTime = null, baselineAdaptiveRunTime = null;
 
 // Saved initial state for reproducible sweep runs
 let savedX = null, savedY = null, savedVx = null, savedVy = null;
@@ -21,8 +21,10 @@ function resetSweepData() {
   sweepPhase = 'idle';
   baselineFixedDT = null;
   baselineFixedTime = null;
+  baselineFixedRunTime = null;
   baselineAdaptiveDT = null;
   baselineAdaptiveTime = null;
+  baselineAdaptiveRunTime = null;
   document.getElementById('sweepStatus').textContent = '';
   renderSweep();
   renderSweepTime();
@@ -65,8 +67,8 @@ function startSweep() {
   sweepRunning = true;
   sweepResults = [];
   sweepRValues = [];
-  baselineFixedDT = null; baselineFixedTime = null;
-  baselineAdaptiveDT = null; baselineAdaptiveTime = null;
+  baselineFixedDT = null; baselineFixedTime = null; baselineFixedRunTime = null;
+  baselineAdaptiveDT = null; baselineAdaptiveTime = null; baselineAdaptiveRunTime = null;
   for (let r=0.02; r<=1.01; r+=0.07) sweepRValues.push(Math.min(r,1.0));
   sweepIdx = 0;
   // Skip fixed baseline — go straight to adaptive
@@ -137,6 +139,7 @@ function finishSweepStep() {
   if (sweepPhase === 'baseline-adaptive') {
     baselineAdaptiveDT = finalDT;
     baselineAdaptiveTime = steadyTime || simTime;
+    baselineAdaptiveRunTime = simTime;
     sweepPhase = 'local';
     renderSweep(); renderSweepTime();
     setTimeout(runSweepPhase, 50);
@@ -147,6 +150,7 @@ function finishSweepStep() {
       finalDS: deltaS,
       bits: totalBits,
       steadyT: steadyTime || simTime,
+      runTime: simTime,
     });
     renderSweep(); renderSweepTime();
     sweepIdx++;
@@ -186,9 +190,11 @@ function exportCSV() {
     // if (baselineFixedTime !== null) csv += `baseline_classical_fixed_steady_time,${baselineFixedTime.toFixed(2)}\n`;
     if (baselineAdaptiveDT !== null) csv += `baseline_classical_adaptive_deltaT,${baselineAdaptiveDT.toFixed(6)}\n`;
     if (baselineAdaptiveTime !== null) csv += `baseline_classical_adaptive_steady_time,${baselineAdaptiveTime.toFixed(2)}\n`;
-    csv += 'r_over_L,final_deltaT,final_deltaS,total_bits,steady_time\n';
+    if (baselineAdaptiveRunTime !== null) csv += `baseline_classical_adaptive_run_time,${baselineAdaptiveRunTime.toFixed(2)}\n`;
+    csv += 'r_over_L,final_deltaT,final_deltaS,total_bits,steady_time,run_time\n';
     for (const r of sweepResults) {
-      csv += `${r.rL.toFixed(4)},${r.finalDT.toFixed(6)},${r.finalDS.toFixed(6)},${r.bits.toFixed(2)},${r.steadyT.toFixed(2)}\n`;
+      const runtime = r.runTime ?? r.steadyT;
+      csv += `${r.rL.toFixed(4)},${r.finalDT.toFixed(6)},${r.finalDS.toFixed(6)},${r.bits.toFixed(2)},${r.steadyT.toFixed(2)},${runtime.toFixed(2)}\n`;
     }
   }
 

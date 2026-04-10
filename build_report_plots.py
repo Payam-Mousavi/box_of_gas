@@ -41,6 +41,10 @@ def ensure_baseline_times(entry: Dict[str, object], csv_path: Path) -> List[Time
         entry["baseline_fixed_deltaT"] = baselines.get("baseline_classical_fixed_deltaT")
     if entry.get("baseline_adaptive_deltaT") is None:
         entry["baseline_adaptive_deltaT"] = baselines.get("baseline_classical_adaptive_deltaT")
+    if entry.get("baseline_fixed_run_time") is None:
+        entry["baseline_fixed_run_time"] = baselines.get("baseline_classical_fixed_run_time")
+    if entry.get("baseline_adaptive_run_time") is None:
+        entry["baseline_adaptive_run_time"] = baselines.get("baseline_classical_adaptive_run_time")
     return data["time_series"]  # type: ignore[return-value]
 
 
@@ -68,9 +72,9 @@ def aggregate_samples(entries: Iterable[Dict[str, object]]):
             per_r[r]["time"].append(sample["steady_time"])
             if adapt:
                 per_r[r]["ratio"].append(sample["final_deltaT"] / adapt)
-            steady = sample["steady_time"]
-            if steady:
-                per_r[r]["bits_per_time"].append(sample["total_bits"] / steady)
+            runtime = sample.get("run_time") or sample.get("steady_time")
+            if runtime:
+                per_r[r]["bits_per_time"].append(sample["total_bits"] / runtime)
             flat_delta_t.append(sample["final_deltaT"])
             flat_entropy.append(sample["final_deltaS"])
             flat_r.append(r)

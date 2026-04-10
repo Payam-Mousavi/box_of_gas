@@ -24,6 +24,7 @@ import matplotlib.pyplot as plt
 
 TIME_HEADER = ["time", "KE", "deltaT", "deltaS_per_particle"]
 SWEEP_HEADER = ["r_over_L", "final_deltaT", "final_deltaS", "total_bits", "steady_time"]
+SWEEP_HEADER_V2 = SWEEP_HEADER + ["run_time"]
 
 
 @dataclass
@@ -41,6 +42,7 @@ class SweepSample:
   final_delta_s: float
   total_bits: float
   steady_time: float
+  run_time: Optional[float]
 
 
 def _safe_float(value: str) -> Optional[float]:
@@ -57,6 +59,7 @@ def parse_export(path: Path) -> Dict[str, object]:
   time_series: List[TimeSample] = []
   sweep_samples: List[SweepSample] = []
   baselines: Dict[str, float] = {}
+  sweep_columns = len(SWEEP_HEADER)
 
   with path.open("r", encoding="utf-8") as csv_file:
     reader = csv.reader(csv_file)
@@ -80,6 +83,11 @@ def parse_export(path: Path) -> Dict[str, object]:
             baselines[header] = val
         continue
       if row == SWEEP_HEADER:
+        sweep_columns = len(SWEEP_HEADER)
+        mode = "sweep"
+        continue
+      if row == SWEEP_HEADER_V2:
+        sweep_columns = len(SWEEP_HEADER_V2)
         mode = "sweep"
         continue
 
@@ -94,11 +102,12 @@ def parse_export(path: Path) -> Dict[str, object]:
           continue
         time_series.append(TimeSample(time_val, ke_val, dt_val, ds_val))
       elif mode == "sweep":
-        if len(row) < len(SWEEP_HEADER):
+        if len(row) < sweep_columns:
           continue
-        parsed = [_safe_float(cell) for cell in row[: len(SWEEP_HEADER)]]
+        parsed = [_safe_float(cell) for cell in row[: sweep_columns]]
         if any(val is None for val in parsed):
           continue
+        run_time = parsed[5] if sweep_columns > len(SWEEP_HEADER) else None
         sweep_samples.append(
           SweepSample(
             r_over_l=parsed[0],
@@ -106,6 +115,7 @@ def parse_export(path: Path) -> Dict[str, object]:
             final_delta_s=parsed[2],
             total_bits=parsed[3],
             steady_time=parsed[4],
+            run_time=run_time,
           )
         )
 

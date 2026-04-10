@@ -17,8 +17,11 @@ function doorPolicy(i) {
   if (demonType === 'classical-adaptive') {
     // Per-side mean: "is this particle faster than average for its side?"
     // This is the optimal use of global info and the true upper bound
-    totalBits += Math.log2(N);
-    const threshold = computeSideMeanSpeed(onLeft);
+    const stats = computeDoorDirectedStats(onLeft);
+    const infoPool = stats.directionalCount || stats.sideCount || N;
+    totalBits += Math.log2(infoPool + 1);
+    const threshold =
+      (stats.directionalMean ?? stats.sideMean ?? initialMeanSpeed);
     return onLeft ? speed > threshold : speed < threshold;
   }
 
