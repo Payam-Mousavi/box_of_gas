@@ -81,7 +81,7 @@ Convergence is detected when ΔT changes by less than 2% of its peak value over 
 | 0.93 | 0.467 ± 0.037 | 86.8% ± 6.7% |
 | 1.00 | 0.467 ± 0.037 | 86.8% ± 6.7% |
 
-The curve rises steeply from r/L = 0.02 (ΔT = 0.23, 42% of adaptive) to r/L = 0.09 (ΔT = 0.45, 84% of adaptive) while polling only 9% of the box width. This initial jump — from 42% to 84% in a single step — is the most striking feature of the plot. At N = 2000, even the smallest tested radius (r/L = 0.02) polls enough neighbors to produce meaningful sorting, unlike at N = 500 where the same radius achieved only 6%.
+The curve rises steeply from r/L = 0.02 (ΔT = 0.23, 42% of adaptive) to r/L = 0.09 (ΔT = 0.45, 84% of adaptive) while polling only 9% of the box width. This initial jump — from 42% to 84% in a single step — is the most striking feature of the plot. Even the smallest tested radius (r/L = 0.02) polls enough neighbors to produce meaningful sorting.
 
 **The saturation plateau:** Beyond r/L ≈ 0.2 the curve flattens, with the plateau averaging ΔT = 0.47 ± 0.04 (88% ± 8% of adaptive). No radius within the plateau statistically outperforms any other — the apparent best (r/L = 0.44 at 93%) is well within the noise band. The ±1σ envelope on the plot makes this clear: it nearly touches the adaptive baseline at every point, yet the mean consistently sits ~12% below it.
 
@@ -93,13 +93,13 @@ Rows r/L = 0.79 through 1.0 produce identical results (ΔT = 0.467 ± 0.037), co
 
 ![Time to steady state](report_plots/sweep_time.png)
 
-The adaptive baseline converges at 174 ± 41 s. Local policies show a remarkably flat convergence profile: all radii from r/L = 0.02 through 1.0 settle between 160 and 192 s, comparable to the adaptive baseline. Unlike at smaller N where intermediate radii took significantly longer, the denser system provides enough particles at every radius for decisions to stabilize quickly.
+The adaptive baseline converges at 174 ± 41 s. Local policies show a remarkably flat convergence profile: all radii from r/L = 0.02 through 1.0 settle between 160 and 192 s, comparable to the adaptive baseline. The dense system provides enough particles at every radius for decisions to stabilize quickly.
 
 ### 3.3 Information Cost
 
 ![Bits vs r/L](report_plots/bits_vs_r.png)
 
-Cumulative information bits rise steeply with r/L: 791 ± 144 bits at r/L = 0.02, 4,952 ± 487 at r/L = 0.09, and roughly 11,000–12,000 for r/L ≥ 0.5 (peaking at 12,429 ± 2,365 at r/L = 0.65 before settling to ~11,247 ± 731 for r/L ≥ 0.79). The bit costs are substantially higher than at N = 1000 because each local poll captures more neighbors (the information cost is log₂(k+1) per decision, where k scales with density × r²).
+Cumulative information bits rise steeply with r/L: 791 ± 144 bits at r/L = 0.02, 4,952 ± 487 at r/L = 0.09, and roughly 11,000–12,000 for r/L ≥ 0.5 (peaking at 12,429 ± 2,365 at r/L = 0.65 before settling to ~11,247 ± 731 for r/L ≥ 0.79). The information cost is log₂(k+1) per decision, where k scales with density × r².
 
 The key ratio: moving from r/L = 0.09 (84% of adaptive, 4,952 bits) to r/L = 0.65 (87% of adaptive, 12,429 bits) multiplies the bit budget by 2.5× for only 3 percentage points of gain. The marginal information efficiency collapses once the radius exceeds ~10% of the box width.
 
@@ -158,7 +158,5 @@ Early slope-based detection triggered near t = 0 when ΔT was flat near zero (no
 4. **Information cost grows faster than sorting quality.** Moving from r/L = 0.09 to 0.65 multiplies the cumulative bit cost by 2.5× (4,952 → 12,429 bits) while improving ΔT from 84% to just 87% of the adaptive reference. The marginal bit efficiency collapses once the radius exceeds ~10% of the box width.
 
 5. **The entropy-temperature tradeoff is clean.** More sorting corresponds to more negative ΔS/N, with tight clustering around ΔS/N ≈ -0.04 when ΔT saturates. The relationship is well-defined across all seeds and radii.
-
-6. **The case for local information strengthens with system size.** Across three runs (N = 500, 1000, 2000), the local demon's plateau performance has held steady at 84–89% of adaptive while per-radius variance has steadily decreased. The absolute ΔT at the adaptive baseline does decrease with N (0.79 → 0.68 → 0.54) because more particles produce more mixing events that resist the demon's sorting, but the local demon's *relative* performance — the metric that matters for the centralization question — is stable or improving. At higher density, even a small radius polls enough neighbors for a reliable local estimate. The implication is that as the system grows, the minimum viable sensing radius *shrinks* relative to the system size — the opposite of what a naive scaling argument might predict.
 
 The central takeaway: **you don't need much centralization to achieve most of the demon's sorting power.** The second law is not violated — the demon pays for sorting with information, and Landauer's principle ensures the global entropy budget balances — but the local demon shows that the *information infrastructure* needed to drive useful sorting is far smaller than a naive global-knowledge assumption would suggest. A local agent polling 9% of the box captures 84% of the benefit; the remaining 16% requires global knowledge of the entire system.
