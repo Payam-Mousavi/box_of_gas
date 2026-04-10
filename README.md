@@ -2,7 +2,7 @@
 
 A 2D particle simulation exploring how much of Maxwell's Demon sorting power can be recovered using only local information. Particles in a box follow Maxwell-Boltzmann statistics with elastic collisions. A partition with a door divides the box, and different "demon" policies control which particles pass through.
 
-The core question: **how much centralization do you need to break the second law locally?**
+The core question: **how much of the demon's sorting power can be recovered using only local information?**
 
 ## How to Run
 
@@ -32,10 +32,10 @@ Use `experiments.py` to drive the in-browser simulator headlessly via Playwright
 ```bash
 cd box_of_gas
 uv run playwright install chromium    # first time only
-uv run python experiments.py --out experiments_out
+uv run python experiments.py --particles 2000 --out experiments_out
 ```
 
-The script now defaults to eight consecutive seeds (1000–1007) and a longer sweep timeout (2400 s). Command-line options let you control particle count, temperature, radius, door width, seed range, and whether plots are generated. Outputs include timestamped CSV/plot folders plus a JSON summary with per-run stats.
+The script defaults to eight consecutive seeds (1000-1007) and a 2400 s sweep timeout. Command-line options let you control particle count, temperature, radius, door width, seed range, and whether plots are generated. Outputs include timestamped CSV/plot folders plus a JSON summary with per-run stats.
 
 ### Updating Report Assets
 
@@ -50,26 +50,25 @@ If `--summary` is omitted, the script picks the newest summary in `experiments_o
 
 ## Concept
 
-### Four Regimes
+### Three Regimes
 
 1. **No demon (control):** Door is open, particles pass freely. Both sides equilibrate to the same temperature.
-2. **Classical Maxwell's demon (fixed threshold):** Uses the initial mean speed at t=0 as a permanent sorting threshold. Gets less effective as the distribution shifts.
-3. **Classical Maxwell's demon (adaptive):** Uses the current per-side mean speed. "Is this particle faster than average for its side?" This is the true upper bound — the optimal use of global information.
-4. **Local "swarm" demon:** Each particle, upon arriving at the door, polls same-side neighbors within radius `r`, compares its speed to the local average, and decides whether to cross. As `r` grows to include the entire box, this approaches the adaptive classical demon's behavior.
+2. **Classical Maxwell's demon (adaptive):** Uses the current per-side mean speed. "Is this particle faster than average for its side?" This is the true upper bound — the optimal use of global information, and the demon Maxwell originally described.
+3. **Local "swarm" demon:** Each particle, upon arriving at the door, polls same-side neighbors within radius `r`, compares its speed to the local average, and decides whether to cross. As `r` grows to include the entire box, this approaches the adaptive classical demon's behavior.
 
 ### The Money Plot
 
-The automated **r-sweep** runs all four regimes from identical initial conditions and produces:
+The automated **r-sweep** runs all three regimes from identical initial conditions and produces:
 
-- **ΔT vs r/L**: sorting quality as a function of neighborhood radius. Shows a sigmoid-like curve where most sorting power is recovered well before `r = L`.
+- **ΔT vs r/L**: sorting quality as a function of neighborhood radius. Shows a steep rise where most sorting power is recovered well before `r = L`.
 - **Time to steady state vs r/L**: how quickly each regime converges.
-- **Classical baselines** drawn as horizontal reference lines for comparison.
+- **Classical adaptive baseline** drawn as a horizontal reference line for comparison.
 
 ## Design Decisions
 
 ### Physics
 
-- **2D hard-sphere simulation** with N particles (target N ~ 500–1000).
+- **2D hard-sphere simulation** with N particles (default N = 2000).
 - **Dimensionless units:** k_B = 1, m = 1, box size 100 x 100.
 - **Time-stepping approach** (not event-driven) with fixed dt.
   - dt constraint: dt < 0.2 x R / (3 sqrt(T/m)) to keep overlaps rare.
@@ -89,7 +88,6 @@ The automated **r-sweep** runs all four regimes from identical initial condition
 
 ### Classical Demon Policy
 
-- **Fixed threshold:** initial mean speed. One-time global knowledge.
 - **Adaptive threshold:** current per-side mean speed. Ongoing global knowledge. This is the correct upper bound because the local demon at large r also uses per-side information. Both answer the same question ("am I faster than my side's average?") — the classical demon just has a perfect sample.
 
 ### Local Demon Policy
@@ -128,10 +126,9 @@ Minimum sim time of 100 before checking. During sweeps, an additional **hold per
 The automated sweep:
 
 1. Initializes particles once and saves state.
-2. Runs classical (fixed) from saved state to convergence.
-3. Runs classical (adaptive) from saved state to convergence.
-4. Sweeps 15 values of r/L from 0.02 to 1.0, each from the same saved state.
-5. Plots dT and time-to-steady vs r/L with classical baselines as horizontal reference lines.
+2. Runs classical (adaptive) from saved state to convergence.
+3. Sweeps 15 values of r/L from 0.02 to 1.0, each from the same saved state.
+4. Plots dT and time-to-steady vs r/L with the adaptive baseline as a horizontal reference line.
 
 All runs share identical initial conditions, so differences are purely due to the demon policy.
 
@@ -147,7 +144,7 @@ All runs share identical initial conditions, so differences are purely due to th
 |------|-------|----------------|
 | `index.html` | ~280 | HTML/CSS, controls, main loop, sweep termination logic |
 | `sim.js` | ~310 | Physics engine: init, collisions, walls, stepping, steady-state detection |
-| `policy.js` | ~50 | Demon door policies (none, classical-fixed, classical-adaptive, local) |
+| `policy.js` | ~50 | Demon door policies (none, classical-adaptive, local) |
 | `render.js` | ~300 | All canvas rendering, FPS tracking, stats bar |
 | `sweep.js` | ~190 | r-sweep orchestration, state save/restore, CSV export |
 
@@ -159,4 +156,4 @@ All files use classic `<script src>` tags (not ES modules) so they share the glo
 - **Right panel:** speed distribution histogram, dT over time, dS over time, dT vs r/L sweep chart, time-to-steady sweep chart.
 - **Top bar:** sliders for N, T, particle radius, door width, demon type dropdown, r/L slider (when local selected). Buttons: Start/Pause, Reset, r-Sweep, Export CSV.
 - **Bottom bar:** T_left, T_right, N_left, N_right, dS, energy drift, cumulative bits, FPS, sim time, steady-state indicator.
-- **CSV export:** downloads time series and sweep results including classical baselines.
+- **CSV export:** downloads time series and sweep results including the adaptive baseline.
