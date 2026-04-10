@@ -4,6 +4,8 @@ A 2D particle simulation exploring how much of Maxwell's Demon sorting power can
 
 The core question: **how much of the demon's sorting power can be recovered using only local information?**
 
+![Simulator UI](report_plots/screenshot.png)
+
 ## How to Run
 
 Serve the directory with any static HTTP server, then open `index.html`:
