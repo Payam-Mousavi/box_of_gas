@@ -6,7 +6,7 @@ let sweepResults = [];
 let sweepRValues = [];
 let sweepIdx = 0;
 let sweepPhase = 'idle';
-let baselineFixedDT = null, baselineFixedTime = null;
+let baselineFixedDT = null, baselineFixedTime = null; // unused — kept for render compat
 let baselineAdaptiveDT = null, baselineAdaptiveTime = null;
 
 // Saved initial state for reproducible sweep runs
@@ -69,7 +69,8 @@ function startSweep() {
   baselineAdaptiveDT = null; baselineAdaptiveTime = null;
   for (let r=0.02; r<=1.01; r+=0.07) sweepRValues.push(Math.min(r,1.0));
   sweepIdx = 0;
-  sweepPhase = 'baseline-fixed';
+  // Skip fixed baseline — go straight to adaptive
+  sweepPhase = 'baseline-adaptive';
   document.getElementById('btnSweep').disabled = true;
   document.getElementById('btnStartPause').disabled = true;
 
@@ -83,13 +84,15 @@ function startSweep() {
 }
 
 function runSweepPhase() {
-  if (sweepPhase === 'baseline-fixed') {
-    document.getElementById('sweepStatus').textContent = 'Sweep: running classical (fixed) baseline...';
-    demonType = 'classical-fixed';
-    restoreInitialState();
-    running = true;
-    loop();
-  } else if (sweepPhase === 'baseline-adaptive') {
+  // Fixed baseline phase removed — adaptive is the only classical reference
+  // if (sweepPhase === 'baseline-fixed') {
+  //   document.getElementById('sweepStatus').textContent = 'Sweep: running classical (fixed) baseline...';
+  //   demonType = 'classical-fixed';
+  //   restoreInitialState();
+  //   running = true;
+  //   loop();
+  // } else
+  if (sweepPhase === 'baseline-adaptive') {
     document.getElementById('sweepStatus').textContent = 'Sweep: running classical (adaptive) baseline...';
     demonType = 'classical-adaptive';
     restoreInitialState();
@@ -123,13 +126,15 @@ function finishSweepStep() {
   const deltaS = (currentS - initialS) / N;
   const finalDT = tR - tL;
 
-  if (sweepPhase === 'baseline-fixed') {
-    baselineFixedDT = finalDT;
-    baselineFixedTime = steadyTime || simTime;
-    sweepPhase = 'baseline-adaptive';
-    renderSweep(); renderSweepTime();
-    setTimeout(runSweepPhase, 50);
-  } else if (sweepPhase === 'baseline-adaptive') {
+  // Fixed baseline recording removed
+  // if (sweepPhase === 'baseline-fixed') {
+  //   baselineFixedDT = finalDT;
+  //   baselineFixedTime = steadyTime || simTime;
+  //   sweepPhase = 'baseline-adaptive';
+  //   renderSweep(); renderSweepTime();
+  //   setTimeout(runSweepPhase, 50);
+  // } else
+  if (sweepPhase === 'baseline-adaptive') {
     baselineAdaptiveDT = finalDT;
     baselineAdaptiveTime = steadyTime || simTime;
     sweepPhase = 'local';
@@ -174,10 +179,11 @@ function exportCSV() {
     csv += `${t},${ke},${dT},${dS}\n`;
   }
 
-  if (sweepResults.length > 0 || baselineFixedDT !== null) {
+  if (sweepResults.length > 0 || baselineAdaptiveDT !== null) {
     csv += '\n\nr_sweep_results\n';
-    if (baselineFixedDT !== null) csv += `baseline_classical_fixed_deltaT,${baselineFixedDT.toFixed(6)}\n`;
-    if (baselineFixedTime !== null) csv += `baseline_classical_fixed_steady_time,${baselineFixedTime.toFixed(2)}\n`;
+    // Fixed baseline export removed
+    // if (baselineFixedDT !== null) csv += `baseline_classical_fixed_deltaT,${baselineFixedDT.toFixed(6)}\n`;
+    // if (baselineFixedTime !== null) csv += `baseline_classical_fixed_steady_time,${baselineFixedTime.toFixed(2)}\n`;
     if (baselineAdaptiveDT !== null) csv += `baseline_classical_adaptive_deltaT,${baselineAdaptiveDT.toFixed(6)}\n`;
     if (baselineAdaptiveTime !== null) csv += `baseline_classical_adaptive_steady_time,${baselineAdaptiveTime.toFixed(2)}\n`;
     csv += 'r_over_L,final_deltaT,final_deltaS,total_bits,steady_time\n';

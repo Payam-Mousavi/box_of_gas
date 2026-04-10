@@ -81,7 +81,7 @@
   <label>Demon:
     <select id="selectDemon">
       <option value="none">None</option>
-      <option value="classical-fixed">Classical (fixed)</option>
+      <!-- <option value="classical-fixed">Classical (fixed)</option> -->
       <option value="classical-adaptive">Classical (adaptive)</option>
       <option value="local">Local</option>
     </select>
@@ -207,7 +207,7 @@ function loop() {
   if (sweepRunning) {
     const SWEEP_MAX_TIME = 800;
     const phase = typeof sweepPhase !== 'undefined' ? sweepPhase : 'idle';
-    const minTime = (phase === 'baseline-fixed' || phase === 'baseline-adaptive')
+    const minTime = (phase === 'baseline-adaptive')
       ? MIN_SWEEP_TIME_BASELINE
       : MIN_SWEEP_TIME_LOCAL;
     const steadyHoldMet = isSteady && steadyTime !== null &&
