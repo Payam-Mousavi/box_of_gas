@@ -53,7 +53,7 @@ If `--summary` is omitted, the script picks the newest summary in `experiments_o
 ### Three Regimes
 
 1. **No demon (control):** Door is open, particles pass freely. Both sides equilibrate to the same temperature.
-2. **Classical Maxwell's demon (adaptive):** Uses the mean speed of all door-directed particles on the arriving side. "Is this particle faster than average among those headed for the door?" This is the true upper bound — the optimal use of global information, and the demon Maxwell originally described.
+2. **Classical Maxwell's demon (adaptive):** Uses the mean speed of all door-directed particles on the arriving side. "Is this particle faster than average among those headed for the door?" This is our global-information benchmark — the same mean-based rule as the local demon, but with a complete sample.
 3. **Local "swarm" demon:** Each particle, upon arriving at the door, polls same-side neighbors within radius `r`, compares its speed to the local average, and decides whether to cross. As `r` grows to include the entire box, this approaches the adaptive classical demon's behavior.
 
 ### The Money Plot
@@ -141,7 +141,7 @@ All runs share identical initial conditions, so differences are purely due to th
 ### File Structure
 
 | File | Lines | Responsibility |
-|------|-------|----------------|
+| ---- | ----- | -------------- |
 | `index.html` | ~280 | HTML/CSS, controls, main loop, sweep termination logic |
 | `sim.js` | ~310 | Physics engine: init, collisions, walls, stepping, steady-state detection |
 | `policy.js` | ~50 | Demon door policies (none, classical-adaptive, local) |

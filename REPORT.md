@@ -4,7 +4,7 @@
 
 Maxwell's Demon — a hypothetical agent that sorts fast and slow gas particles to create a temperature gradient — is a foundational thought experiment in thermodynamics. The classical demon requires global knowledge of the entire system. This project asks: **what if the demon can only see its immediate neighborhood?**
 
-We simulate 2000 hard-sphere particles in a 2D box with a central partition and door, and compare three regimes: no demon (control), a classical demon with an adaptive per-side threshold (the theoretical upper bound), and a local demon that polls only same-side neighbors within radius r. An automated sweep varies r/L from 0.02 to 1.0 across eight independent seeds.
+We simulate 2000 hard-sphere particles in a 2D box with a central partition and door, and compare three regimes: no demon (control), a classical demon with an adaptive per-side threshold (our global-information benchmark), and a local demon that polls only same-side neighbors within radius r. An automated sweep varies r/L from 0.02 to 1.0 across eight independent seeds.
 
 **Key findings (8 seeds, N = 2000, T = 1.0):**
 
@@ -34,10 +34,10 @@ A 2D box (100 × 100, dimensionless units with k_B = 1, m = 1) contains 2000 har
 | Regime | Knowledge | Decision Rule |
 | ------ | --------- | ------------- |
 | **No demon** | None | Door is always open. Control case. |
-| **Classical (adaptive)** | Global, ongoing | Pass if speed > current per-side mean. The demon continuously knows the average speed of every particle on the arriving particle's side. This is the theoretical upper bound — the optimal use of global information. |
+| **Classical (adaptive)** | Global, ongoing | Pass if speed > mean of all door-directed particles on the arriving side. The demon has perfect knowledge of every door-directed particle's speed. This is our global-information benchmark — the same decision rule as the local demon, but with a complete sample. |
 | **Local** | Neighbors within radius r | Pass if speed > mean speed of same-side neighbors within distance r that are moving toward the door. No information = reject. |
 
-Both demons now use the same reference population — particles on the arriving side that are moving toward the door — and answer the same question: "is this particle faster than that cohort's average?" The classical demon has a perfect sample (every door-directed particle on that side) while the local demon has a noisy, spatially-biased sample limited by radius r. This is the demon Maxwell originally imagined: perfect, instantaneous knowledge of each molecule's velocity, later analyzed by Szilard, Landauer, and Bennett when they resolved the paradox through the thermodynamic cost of information.
+Both demons use the same reference population — particles on the arriving side that are moving toward the door — and answer the same question: "is this particle faster than that cohort's average?" The classical demon has a perfect sample (every door-directed particle on that side) while the local demon has a noisy, spatially-biased sample limited by radius r. Note that comparing against the mean is not the theoretically optimal decision rule — a more sophisticated statistic could extract more sorting power from the same information. The adaptive demon therefore serves as a **benchmark** (the best performance achievable under the mean-based rule with global information), not as a strict upper bound on all possible sorting strategies. Occasionally a noisy local estimate will outperform the global mean for a specific microstate, which is why a small number of per-seed ratios exceed 1.0.
 
 ### The Sweep
 
@@ -93,7 +93,7 @@ Rows r/L = 0.79 through 1.0 produce identical results (ΔT = 0.467 ± 0.037), co
 
 ![Time to steady state](report_plots/sweep_time.png)
 
-The adaptive baseline converges at 161 ± 26 s. Local policies show a remarkably flat convergence profile: all radii from r/L = 0.02 through 1.0 settle between 211 and 236 s, comparable to the adaptive baseline. The dense system provides enough particles at every radius for decisions to stabilize quickly.
+The adaptive baseline converges at 161 ± 26 s. Local policies converge on a similar timescale: per-radius means range from 160 to 192 s, with individual seeds spanning 105 to 287 s. Per-radius standard deviations of 25–51 s overlap substantially with the adaptive baseline's spread, confirming that convergence speed is not meaningfully affected by the sensing radius.
 
 ### 3.3 Information Cost
 
@@ -147,11 +147,11 @@ Two insights:
 
 ## 4. Design Decisions
 
-### Why per-side adaptive as the upper bound
+### Why per-side adaptive as the benchmark
 
-Early versions used the global mean speed as the adaptive threshold, and compared against all particles on a side regardless of direction. This caused the local demon to **appear to outperform** the classical demon at large r — which should not happen for an upper bound. Two issues contributed: (1) as sorting progresses, the left side cools and the right side heats, so a global threshold becomes increasingly poor; (2) the local demon polled only door-directed neighbors while the adaptive demon averaged over all particles, creating a systematic mismatch.
+Early versions used the global mean speed as the adaptive threshold, and compared against all particles on a side regardless of direction. This caused the local demon to systematically outperform the classical demon at large r. Two issues contributed: (1) as sorting progresses, the left side cools and the right side heats, so a global threshold becomes increasingly poor; (2) the local demon polled only door-directed neighbors while the adaptive demon averaged over all particles, creating a systematic mismatch.
 
-The fix: both demons now use the same door-directed reference population and answer the identical question — "is this particle faster than the average of door-directed particles on its side?" The classical demon has a perfect sample (all door-directed particles on that side, with no radius limit), making it the true upper bound. This is the demon Maxwell originally described — one with perfect instantaneous knowledge.
+The fix: both demons now use the same door-directed reference population and answer the identical question — "is this particle faster than the average of door-directed particles on its side?" The classical demon has a perfect sample (all door-directed particles on that side, with no radius limit). This eliminates the systematic advantage, though occasional per-seed exceedances remain because comparing against the mean is not the optimal acceptance statistic — a noisy local estimate can beat the global mean on a specific microstate.
 
 ### Why arrival-only decisions with single-crossing enforcement
 
@@ -161,7 +161,7 @@ Each particle triggers the door policy **exactly once** per crossing attempt. Wi
 
 Both the adaptive and local demons filter for neighbors moving toward the door (v_x > 0 on the left, v_x < 0 on the right). This is the physically motivated choice: the arriving particle wants to know "am I faster than the particles I'm competing with to cross?" Particles moving away from the door are not candidates for crossing and would dilute the reference population. Using the same reference population for both demons ensures an apples-to-apples comparison — the only difference is sample size (all door-directed particles vs. those within radius r).
 
-The ~17% gap between the local demon at r/L = 1.0 and the adaptive baseline reflects the fact that even at system-wide reach, the local demon's radius-limited sample is slightly noisier than the adaptive demon's complete census of the door-directed cohort.
+The ~17% aggregate gap between the local demon at r/L = 1.0 and the adaptive baseline reflects the accumulated effect of noisier per-decision thresholds over thousands of sorting events, even though both demons see the same reference population at that radius.
 
 ### Why steady-state detection uses lookback, not slope
 
@@ -179,6 +179,6 @@ Early slope-based detection triggered near t = 0 when ΔT was flat near zero (no
 
 5. **The entropy-temperature tradeoff is clean.** More sorting corresponds to more negative ΔS/N, with tight clustering around ΔS/N ≈ -0.04 when ΔT saturates. The relationship is well-defined across all seeds and radii.
 
-6. **Seed-to-seed variability is substantial but bounded.** The best-performing local radius varies from 0.09 to 0.72 depending on the initial microstate. In 2 of 120 seed × radius combinations the local demon slightly exceeds the adaptive baseline (ratios of 1.01 and 1.10) — a consequence of finite simulation time, not a failure of the upper bound. The aggregate mean ratio at every radius is well below 1.0.
+6. **Seed-to-seed variability is substantial.** The best-performing local radius varies from 0.09 to 0.72 depending on the initial microstate. In 2 of 120 seed × radius combinations the local demon slightly exceeds the adaptive benchmark (ratios of 1.01 and 1.10). This is expected: comparing against the mean is not the optimal acceptance statistic, so a noisy local estimate can occasionally outperform the global mean for a specific microstate. The aggregate mean ratio at every radius is well below 1.0 (ranging from 0.41 to 0.89), confirming that the adaptive demon is the stronger policy on average.
 
 The central takeaway: **you don't need much centralization to achieve most of the demon's sorting power.** The second law is not violated — the demon pays for sorting with information, and Landauer's principle ensures the global entropy budget balances — but the local demon shows that the *information infrastructure* needed to drive useful sorting is far smaller than a naive global-knowledge assumption would suggest. A local agent polling 9% of the box captures 81% of the benefit; the remaining 19% requires global knowledge of the entire system.
