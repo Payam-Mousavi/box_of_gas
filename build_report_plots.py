@@ -228,7 +228,7 @@ def main() -> None:
     if adaptive_dt:
         dt_baselines.append(("Classical (adaptive)", float(np.mean(adaptive_dt)), {"color": "#2a9d8f", "ls": "--"}))
     if god_dt:
-        dt_baselines.append(("Optimal (god)", float(np.mean(god_dt)), {"color": "#e76f51", "ls": "--"}))
+        dt_baselines.append(("Optimal (god)", float(np.mean(god_dt)), {"color": "#9b59b6", "ls": ":"}))
 
     plot_with_band(
         x_vals,
@@ -247,7 +247,7 @@ def main() -> None:
     if adaptive_time:
         time_baselines.append(("Classical (adaptive)", float(np.mean(adaptive_time)), {"color": "#2a9d8f", "ls": "--"}))
     if god_time:
-        time_baselines.append(("Optimal (god)", float(np.mean(god_time)), {"color": "#e76f51", "ls": "--"}))
+        time_baselines.append(("Optimal (god)", float(np.mean(god_time)), {"color": "#9b59b6", "ls": ":"}))
 
     plot_with_band(
         x_vals,

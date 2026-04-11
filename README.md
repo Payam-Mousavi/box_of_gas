@@ -52,15 +52,16 @@ If `--summary` is omitted, the script picks the newest summary in `experiments_o
 
 ## Concept
 
-### Three Regimes
+### Four Regimes
 
 1. **No demon (control):** Door is open, particles pass freely. Both sides equilibrate to the same temperature.
-2. **Classical Maxwell's demon (adaptive):** Uses the mean speed of all door-directed particles on the arriving side. "Is this particle faster than average among those headed for the door?" This is our global-information benchmark — the same mean-based rule as the local demon, but with a complete sample.
-3. **Local "swarm" demon:** Each particle, upon arriving at the door, polls same-side neighbors within radius `r`, compares its speed to the local average, and decides whether to cross. As `r` grows to include the entire box, this approaches the adaptive classical demon's behavior.
+2. **Classical Maxwell's demon (adaptive):** Uses the mean speed of all particles on the arriving side (excluding the arriving particle). This is our global-information benchmark — the same mean-based rule as the local demon, but with a complete sample.
+3. **Optimal ("god") demon:** Uses an energy-based greedy-optimal threshold with perfect knowledge of both sides' temperatures and particle counts. Passes a particle iff the crossing increases ΔT. This is the theoretical upper bound for any greedy policy.
+4. **Local "swarm" demon:** Each particle, upon arriving at the door, polls same-side neighbors within radius `r`, compares its speed to the local average, and decides whether to cross. As `r` grows to include the entire box, this approaches the adaptive classical demon's behavior.
 
 ### The Money Plot
 
-The automated **r-sweep** runs all three regimes from identical initial conditions and produces:
+The automated **r-sweep** runs all four regimes from identical initial conditions and produces:
 
 - **ΔT vs r/L**: sorting quality as a function of neighborhood radius. Shows a steep rise where most sorting power is recovered well before `r = L`.
 - **Time to steady state vs r/L**: how quickly each regime converges.
@@ -90,7 +91,7 @@ The automated **r-sweep** runs all three regimes from identical initial conditio
 
 ### Classical Demon Policy
 
-- **Adaptive threshold:** mean speed of all door-directed particles on the arriving side. Ongoing global knowledge. Both demons use the same reference population (particles moving toward the door on the same side) and answer the same question — the classical demon just has a perfect sample (no radius limit).
+- **Adaptive threshold:** mean speed of all particles on the arriving side, excluding the arriving particle. Ongoing global knowledge. Both mean-based demons (adaptive and local) use the same reference population and answer the same question — the classical demon just has a perfect sample (no radius limit).
 
 ### Local Demon Policy
 
@@ -99,7 +100,6 @@ When particle `i` arrives at the door from side S:
 1. Find all particles `j` where:
    - `j` is on side S (same-side only — the partition is an information barrier)
    - distance(i, j) <= r
-   - `j` is moving toward the door (v_x > 0 if left side, v_x < 0 if right side)
    - j != i
 2. Compute mean speed |v| of that neighbor set.
 3. If |v_i| > mean -> pass through.
@@ -129,8 +129,9 @@ The automated sweep:
 
 1. Initializes particles once and saves state.
 2. Runs classical (adaptive) from saved state to convergence.
-3. Sweeps 15 values of r/L from 0.02 to 1.0, each from the same saved state.
-4. Plots dT and time-to-steady vs r/L with the adaptive baseline as a horizontal reference line.
+3. Runs optimal (god) from saved state to convergence.
+4. Sweeps 15 values of r/L from 0.02 to 1.0, each from the same saved state.
+5. Plots dT and time-to-steady vs r/L with both baselines as horizontal reference lines.
 
 All runs share identical initial conditions, so differences are purely due to the demon policy.
 
@@ -146,7 +147,7 @@ All runs share identical initial conditions, so differences are purely due to th
 | ---- | ----- | -------------- |
 | `index.html` | ~280 | HTML/CSS, controls, main loop, sweep termination logic |
 | `sim.js` | ~310 | Physics engine: init, collisions, walls, stepping, steady-state detection |
-| `policy.js` | ~50 | Demon door policies (none, classical-adaptive, local) |
+| `policy.js` | ~60 | Demon door policies (none, classical-adaptive, god, local) |
 | `render.js` | ~300 | All canvas rendering, FPS tracking, stats bar |
 | `sweep.js` | ~190 | r-sweep orchestration, state save/restore, CSV export |
 

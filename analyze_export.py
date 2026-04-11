@@ -76,7 +76,7 @@ def parse_export(path: Path) -> Dict[str, object]:
       if header == "r_sweep_results":
         mode = "sweep_meta"
         continue
-      if header.startswith("baseline_classical_"):
+      if header.startswith("baseline_classical_") or header.startswith("baseline_god_"):
         if len(row) >= 2:
           val = _safe_float(row[1])
           if val is not None:
