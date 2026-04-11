@@ -167,6 +167,27 @@ function computeSideStats(onLeft, excludeIdx) {
   };
 }
 
+function computeDoorDirectedExtrema(onLeft, excludeIdx) {
+  let fastest = -Infinity;
+  let slowest = Infinity;
+  let count = 0;
+  for (let i = 0; i < N; i++) {
+    if (i === excludeIdx) continue;
+    if ((x[i] < PARTITION_X) !== onLeft) continue;
+    const towardDoor = onLeft ? vx[i] > 0 : vx[i] < 0;
+    if (!towardDoor) continue;
+    const speed = Math.sqrt(vx[i] * vx[i] + vy[i] * vy[i]);
+    if (speed > fastest) fastest = speed;
+    if (speed < slowest) slowest = speed;
+    count++;
+  }
+  return {
+    fastest: count > 0 ? fastest : null,
+    slowest: count > 0 ? slowest : null,
+    count,
+  };
+}
+
 // ============================================================
 // Steady-state detection
 // ============================================================

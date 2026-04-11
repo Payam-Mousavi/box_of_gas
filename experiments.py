@@ -50,6 +50,11 @@ class SweepRunSummary:
     baseline_adaptive_steady_time: Optional[float]
     baseline_fixed_run_time: Optional[float]
     baseline_adaptive_run_time: Optional[float]
+    baseline_adaptive_bits: Optional[float]
+    baseline_god_deltaT: Optional[float]
+    baseline_god_steady_time: Optional[float]
+    baseline_god_run_time: Optional[float]
+    baseline_god_bits: Optional[float]
     best_local_deltaT: Optional[float]
     best_local_r: Optional[float]
     best_local_bits: Optional[float]
@@ -252,6 +257,11 @@ def summarize_run(csv_path: Path, plots_root: Optional[Path], make_plots: bool) 
         baseline_adaptive_steady_time=baselines.get("baseline_classical_adaptive_steady_time"),
         baseline_fixed_run_time=baselines.get("baseline_classical_fixed_run_time"),
         baseline_adaptive_run_time=baselines.get("baseline_classical_adaptive_run_time"),
+        baseline_adaptive_bits=baselines.get("baseline_classical_adaptive_bits"),
+        baseline_god_deltaT=baselines.get("baseline_god_deltaT"),
+        baseline_god_steady_time=baselines.get("baseline_god_steady_time"),
+        baseline_god_run_time=baselines.get("baseline_god_run_time"),
+        baseline_god_bits=baselines.get("baseline_god_bits"),
         best_local_deltaT=best_local.final_delta_t if best_local else None,
         best_local_r=best_local.r_over_l if best_local else None,
         best_local_bits=best_local.total_bits if best_local else None,

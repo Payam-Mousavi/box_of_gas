@@ -45,6 +45,16 @@ def ensure_baseline_times(entry: Dict[str, object], csv_path: Path) -> List[Time
         entry["baseline_fixed_run_time"] = baselines.get("baseline_classical_fixed_run_time")
     if entry.get("baseline_adaptive_run_time") is None:
         entry["baseline_adaptive_run_time"] = baselines.get("baseline_classical_adaptive_run_time")
+    if entry.get("baseline_adaptive_bits") is None:
+        entry["baseline_adaptive_bits"] = baselines.get("baseline_classical_adaptive_bits")
+    if entry.get("baseline_god_deltaT") is None:
+        entry["baseline_god_deltaT"] = baselines.get("baseline_god_deltaT")
+    if entry.get("baseline_god_steady_time") is None:
+        entry["baseline_god_steady_time"] = baselines.get("baseline_god_steady_time")
+    if entry.get("baseline_god_run_time") is None:
+        entry["baseline_god_run_time"] = baselines.get("baseline_god_run_time")
+    if entry.get("baseline_god_bits") is None:
+        entry["baseline_god_bits"] = baselines.get("baseline_god_bits")
     return data["time_series"]  # type: ignore[return-value]
 
 

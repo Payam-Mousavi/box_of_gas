@@ -123,7 +123,15 @@ The time-series plot (from the last sweep run) shows:
 
 ![Centralization trade-off](report_plots/centralization_tradeoff.png)
 
-Plotting each radius as a point in "centralization–information–performance" space reveals a non-monotonic relationship: sorting efficiency rises with r/L, peaks around r/L ≈ 0.16–0.30, then *decreases* slightly as the local threshold converges toward the global mean. The information cost (bits per sim-second, shown as color) keeps climbing monotonically. The optimal operating point is in the r/L ≈ 0.1–0.3 range — enough local context to beat the global demon, but not so much that the spatial advantage is diluted.
+ Plotting each radius as a point in "centralization–information–performance" space reveals a non-monotonic relationship: sorting efficiency rises with r/L, peaks around r/L ≈ 0.16–0.30, then *decreases* slightly as the local threshold converges toward the global mean. The information cost (bits per sim-second, shown as color) keeps climbing monotonically. The optimal operating point is in the r/L ≈ 0.1–0.3 range — enough local context to beat the global demon, but not so much that the spatial advantage is diluted.
+ 
+### 3.6.1 Why Local Beats Global Despite "Less" Information
+
+The adaptive demon has perfect knowledge of every particle's speed on a side, but it compresses that knowledge into a single statistic — the per-side mean. Once sorting begins, the spatial distribution becomes highly inhomogeneous: hot particles that just crossed linger near the door, while rejected cold ones drift toward the far wall. The mean treats all of them equally, so the global demon’s threshold is polluted by particles that are irrelevant to the immediate door decision.
+
+The local demon uses the *same* mean-based rule but samples only the particles within radius r. For r/L ≈ 0.16–0.30 that sample coincides with the microenvironment near the door, which is exactly where the next arrivals come from. The mean of that short-range cohort is a better predictor of “should this particle pass?” than the diluted global mean, so the local demon sits closer to the true optimal decision boundary and outperforms the global mean-based policy.
+
+At r/L ≥ 0.79 the local sample grows to include the entire half-box, so the two demons compute the same mean and their ΔT traces become identical. This confirms the effect is not numerical noise: it’s a consequence of comparing two *statistics* (local vs global means) that lose information in different ways, not a violation of the “perfect information is best” principle. A truly optimal demon would use the full distribution or rank ordering of speeds; the global-mean demon does not, and a targeted local mean can therefore win.
 
 ### 3.7 Seed-to-Seed Variability
 
@@ -159,6 +167,10 @@ Each particle triggers the door policy **exactly once** per crossing attempt. Wi
 ### Why both demons use the same reference population
 
 Both demons compare the arriving particle's speed to the mean speed of all particles on the same side (excluding the arriving particle). The only difference is the sample: the classical demon has a complete census; the local demon samples within radius r. Both exclude the arriving particle to ensure the local demon at r/L ≥ 0.79 produces results identical to the classical demon — this identity serves as a correctness check for the simulation.
+
+### Why the local demon can outperform the "global" benchmark
+
+The adaptive demon does not implement the mathematically optimal policy; it compresses its perfect knowledge into a single per-side mean. That statistic is blind to spatial structure. In practice, fast “would-have-crossed” particles congregate near the door while slower rejected particles drift away, so the local neighborhood around the door is hotter than the side-wide average. When r/L is modest, the local demon’s mean tracks that microenvironment and yields a threshold closer to the true decision boundary. Giving the adaptive demon truly optimal logic (e.g., comparing against the full speed distribution) would restore it as an upper bound, but under the shared mean-based rule it is entirely plausible — and now observed — that a local statistic beats a global average.
 
 ### Why ΔT is measured at steady-state detection
 

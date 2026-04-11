@@ -7,7 +7,8 @@ let sweepRValues = [];
 let sweepIdx = 0;
 let sweepPhase = 'idle';
 let baselineFixedDT = null, baselineFixedTime = null, baselineFixedRunTime = null; // unused — kept for render compat
-let baselineAdaptiveDT = null, baselineAdaptiveTime = null, baselineAdaptiveRunTime = null;
+let baselineAdaptiveDT = null, baselineAdaptiveTime = null, baselineAdaptiveRunTime = null, baselineAdaptiveBits = null;
+let baselineGodDT = null, baselineGodTime = null, baselineGodRunTime = null, baselineGodBits = null;
 
 // Saved initial state for reproducible sweep runs
 let savedX = null, savedY = null, savedVx = null, savedVy = null;
@@ -25,6 +26,11 @@ function resetSweepData() {
   baselineAdaptiveDT = null;
   baselineAdaptiveTime = null;
   baselineAdaptiveRunTime = null;
+  baselineAdaptiveBits = null;
+  baselineGodDT = null;
+  baselineGodTime = null;
+  baselineGodRunTime = null;
+  baselineGodBits = null;
   document.getElementById('sweepStatus').textContent = '';
   renderSweep();
   renderSweepTime();
@@ -68,10 +74,11 @@ function startSweep() {
   sweepResults = [];
   sweepRValues = [];
   baselineFixedDT = null; baselineFixedTime = null; baselineFixedRunTime = null;
-  baselineAdaptiveDT = null; baselineAdaptiveTime = null; baselineAdaptiveRunTime = null;
+  baselineAdaptiveDT = null; baselineAdaptiveTime = null; baselineAdaptiveRunTime = null; baselineAdaptiveBits = null;
+  baselineGodDT = null; baselineGodTime = null; baselineGodRunTime = null; baselineGodBits = null;
   for (let r=0.02; r<=1.01; r+=0.07) sweepRValues.push(Math.min(r,1.0));
   sweepIdx = 0;
-  // Skip fixed baseline — go straight to adaptive
+  // Skip fixed baseline — go adaptive -> god -> local
   sweepPhase = 'baseline-adaptive';
   document.getElementById('btnSweep').disabled = true;
   document.getElementById('btnStartPause').disabled = true;
@@ -97,6 +104,12 @@ function runSweepPhase() {
   if (sweepPhase === 'baseline-adaptive') {
     document.getElementById('sweepStatus').textContent = 'Sweep: running classical (adaptive) baseline...';
     demonType = 'classical-adaptive';
+    restoreInitialState();
+    running = true;
+    loop();
+  } else if (sweepPhase === 'baseline-god') {
+    document.getElementById('sweepStatus').textContent = 'Sweep: running God (rank optimal) baseline...';
+    demonType = 'god';
     restoreInitialState();
     running = true;
     loop();
@@ -139,6 +152,15 @@ function finishSweepStep() {
     baselineAdaptiveDT = finalDT;
     baselineAdaptiveTime = steadyTime || simTime;
     baselineAdaptiveRunTime = simTime;
+    baselineAdaptiveBits = totalBits;
+    sweepPhase = 'baseline-god';
+    renderSweep(); renderSweepTime();
+    setTimeout(runSweepPhase, 50);
+  } else if (sweepPhase === 'baseline-god') {
+    baselineGodDT = finalDT;
+    baselineGodTime = steadyTime || simTime;
+    baselineGodRunTime = simTime;
+    baselineGodBits = totalBits;
     sweepPhase = 'local';
     renderSweep(); renderSweepTime();
     setTimeout(runSweepPhase, 50);
@@ -190,6 +212,11 @@ function exportCSV() {
     if (baselineAdaptiveDT !== null) csv += `baseline_classical_adaptive_deltaT,${baselineAdaptiveDT.toFixed(6)}\n`;
     if (baselineAdaptiveTime !== null) csv += `baseline_classical_adaptive_steady_time,${baselineAdaptiveTime.toFixed(2)}\n`;
     if (baselineAdaptiveRunTime !== null) csv += `baseline_classical_adaptive_run_time,${baselineAdaptiveRunTime.toFixed(2)}\n`;
+    if (baselineAdaptiveBits !== null) csv += `baseline_classical_adaptive_bits,${baselineAdaptiveBits.toFixed(2)}\n`;
+    if (baselineGodDT !== null) csv += `baseline_god_deltaT,${baselineGodDT.toFixed(6)}\n`;
+    if (baselineGodTime !== null) csv += `baseline_god_steady_time,${baselineGodTime.toFixed(2)}\n`;
+    if (baselineGodRunTime !== null) csv += `baseline_god_run_time,${baselineGodRunTime.toFixed(2)}\n`;
+    if (baselineGodBits !== null) csv += `baseline_god_bits,${baselineGodBits.toFixed(2)}\n`;
     csv += 'r_over_L,final_deltaT,final_deltaS,total_bits,steady_time,run_time\n';
     for (const r of sweepResults) {
       const runtime = r.runTime ?? r.steadyT;

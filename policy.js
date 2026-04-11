@@ -24,6 +24,20 @@ function doorPolicy(i) {
     return onLeft ? speed > threshold : speed < threshold;
   }
 
+  if (demonType === 'god') {
+    // Rank-based "God" demon: only the fastest (toward cold->hot) or slowest (hot->cold) particle may pass
+    const stats = computeDoorDirectedExtrema(onLeft, i);
+    const infoPool = stats.count || N;
+    totalBits += Math.log2(infoPool + 1);
+    if (stats.count === 0) return false;
+    if (onLeft) {
+      // Moving from left -> right: demand the maximum speed among door-directed peers
+      return stats.fastest !== null ? speed >= stats.fastest : false;
+    }
+    // Moving from right -> left: only allow the slowest particle back to the cold side
+    return stats.slowest !== null ? speed <= stats.slowest : false;
+  }
+
   if (demonType === 'local') {
     // Poll ALL same-side neighbors within radius r
     const r = localRadiusFrac * BOX_W;
