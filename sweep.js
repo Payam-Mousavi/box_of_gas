@@ -53,7 +53,7 @@ function restoreInitialState() {
   initialKE = savedKE;
   simTime = 0; totalBits = 0;
   keHistory = []; dtHistory = []; dsHistory = [];
-  isSteady = false; steadyTime = null; peakDT = 0;
+  isSteady = false; steadyTime = null; steadyDT = null; steadyDS = null; peakDT = 0;
   doorCrossing = new Uint8Array(N);
   const s0 = computeSideTemps();
   initialS = computeEntropy(s0.tL, s0.nL, s0.tR, s0.nR);
@@ -123,19 +123,18 @@ function runLocalSweepStep() {
 
 function finishSweepStep() {
   running = false;
-  const { tR, tL, nL, nR } = computeSideTemps();
-  const currentS = computeEntropy(tL, nL, tR, nR);
-  const deltaS = (currentS - initialS) / N;
-  const finalDT = tR - tL;
+  // Use values captured at steady-state detection, not end-of-run.
+  // Fallback to end-of-run values only if steady state was never detected (timeout).
+  let finalDT, deltaS;
+  if (steadyDT !== null) {
+    finalDT = steadyDT;
+    deltaS = steadyDS;
+  } else {
+    const { tR, tL, nL, nR } = computeSideTemps();
+    finalDT = tR - tL;
+    deltaS = (computeEntropy(tL, nL, tR, nR) - initialS) / N;
+  }
 
-  // Fixed baseline recording removed
-  // if (sweepPhase === 'baseline-fixed') {
-  //   baselineFixedDT = finalDT;
-  //   baselineFixedTime = steadyTime || simTime;
-  //   sweepPhase = 'baseline-adaptive';
-  //   renderSweep(); renderSweepTime();
-  //   setTimeout(runSweepPhase, 50);
-  // } else
   if (sweepPhase === 'baseline-adaptive') {
     baselineAdaptiveDT = finalDT;
     baselineAdaptiveTime = steadyTime || simTime;

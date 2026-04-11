@@ -36,6 +36,8 @@ const STEADY_ABS_THRESH = 0.005;
 const STEADY_MIN_TIME = 100;
 let isSteady = false;
 let steadyTime = null;
+let steadyDT = null;
+let steadyDS = null;
 let peakDT = 0;
 
 // ============================================================
@@ -114,7 +116,7 @@ function init(nParticles, temperature, radius) {
   simTime=0; totalBits=0;
   initialKE = computeKE();
   keHistory=[]; dtHistory=[]; dsHistory=[];
-  isSteady=false; steadyTime=null; peakDT=0;
+  isSteady=false; steadyTime=null; steadyDT=null; steadyDS=null; peakDT=0;
   doorCrossing = new Uint8Array(N);
 
   const s0 = computeSideTemps();
@@ -195,6 +197,10 @@ function checkSteadyState() {
   if (relOk || absOk) {
     isSteady = true;
     steadyTime = simTime;
+    const ss = computeSideTemps();
+    steadyDT = ss.tR - ss.tL;
+    const currentS = computeEntropy(ss.tL, ss.nL, ss.tR, ss.nR);
+    steadyDS = (currentS - initialS) / N;
   }
 }
 
