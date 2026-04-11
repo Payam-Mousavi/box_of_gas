@@ -150,27 +150,18 @@ function computeEntropy(tL, nL, tR, nR) {
   return s;
 }
 
-function computeDoorDirectedStats(onLeft) {
-  let directionalSum = 0;
-  let directionalCount = 0;
-  let sideSum = 0;
-  let sideCount = 0;
+function computeSideStats(onLeft, excludeIdx) {
+  let sum = 0;
+  let count = 0;
   for (let i = 0; i < N; i++) {
+    if (i === excludeIdx) continue;
     if ((x[i] < PARTITION_X) !== onLeft) continue;
-    const speed = Math.sqrt(vx[i]*vx[i] + vy[i]*vy[i]);
-    sideSum += speed;
-    sideCount++;
-    const towardDoor = onLeft ? vx[i] > 0 : vx[i] < 0;
-    if (towardDoor) {
-      directionalSum += speed;
-      directionalCount++;
-    }
+    sum += Math.sqrt(vx[i]*vx[i] + vy[i]*vy[i]);
+    count++;
   }
   return {
-    directionalMean: directionalCount > 0 ? directionalSum / directionalCount : null,
-    directionalCount,
-    sideMean: sideCount > 0 ? sideSum / sideCount : null,
-    sideCount,
+    mean: count > 0 ? sum / count : null,
+    count,
   };
 }
 

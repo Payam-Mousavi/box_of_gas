@@ -15,26 +15,23 @@ function doorPolicy(i) {
   }
 
   if (demonType === 'classical-adaptive') {
-    // Per-side mean: "is this particle faster than average for its side?"
-    // This is the optimal use of global info and the true upper bound
-    const stats = computeDoorDirectedStats(onLeft);
-    const infoPool = stats.directionalCount || stats.sideCount || N;
+    // Per-side mean of ALL particles: "is this particle faster than average for its side?"
+    // Global-information benchmark — same mean-based rule as local, but complete sample
+    const stats = computeSideStats(onLeft, i);
+    const infoPool = stats.count || N;
     totalBits += Math.log2(infoPool + 1);
-    const threshold =
-      (stats.directionalMean ?? stats.sideMean ?? initialMeanSpeed);
+    const threshold = stats.mean ?? initialMeanSpeed;
     return onLeft ? speed > threshold : speed < threshold;
   }
 
   if (demonType === 'local') {
-    // Poll same-side neighbors within radius r moving toward the door
+    // Poll ALL same-side neighbors within radius r
     const r = localRadiusFrac * BOX_W;
     const r2 = r * r;
     let sumSpd=0, count=0;
     for (let j=0;j<N;j++) {
       if (j===i) continue;
       if ((x[j]<PARTITION_X) !== onLeft) continue;
-      if (onLeft && vx[j]<=0) continue;
-      if (!onLeft && vx[j]>=0) continue;
       if ((x[j]-x[i])**2+(y[j]-y[i])**2 <= r2) {
         sumSpd += Math.sqrt(vx[j]*vx[j]+vy[j]*vy[j]);
         count++;
