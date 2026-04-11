@@ -27,17 +27,48 @@ This is the core question of the project: **how much of the demon's sorting powe
 
 ### The Box
 
-A 2D box (100 × 100, dimensionless units with k_B = 1, m = 1) contains 2000 hard-sphere particles initialized from a Maxwell-Boltzmann velocity distribution. A vertical partition at x = 50 divides the box into left and right chambers. A door in the center of the partition allows particles to cross, subject to the demon's policy.
+A 2D box (100 × 100, dimensionless units with $k_B = 1$, $m = 1$) contains 2000 hard-sphere particles initialized from a Maxwell-Boltzmann velocity distribution. A vertical partition at $x = 50$ divides the box into left and right chambers. A door in the center of the partition allows particles to cross, subject to the demon's policy.
 
-### The Three Regimes
+### The Four Regimes
 
 | Regime | Knowledge | Decision Rule |
 | ------ | --------- | ------------- |
 | **No demon** | None | Door is always open. Control case. |
-| **Classical (adaptive)** | Global, ongoing | Pass if speed > mean speed of all particles on the arriving side (excluding the arriving particle). The demon has perfect knowledge of every particle's speed on that side. |
+| **Classical (adaptive)** | Global, ongoing | Pass if speed > mean speed of all particles on the arriving side (excluding the arriving particle). |
+| **Optimal ("god")** | Global, ongoing | Pass iff the crossing increases ΔT. Uses both sides' temperatures and particle counts to compute the exact energy threshold (see §2.2). |
 | **Local** | Neighbors within radius r | Pass if speed > mean speed of all same-side neighbors within distance r (excluding itself). No information = reject. |
 
-Both demons use the same mean-based decision rule and exclude the arriving particle from the reference population. Only particles moving toward the door trigger the policy (arrival gate in the physics engine). The classical demon computes the mean over all particles on the arriving side; the local demon computes it over those within radius r. At r/L ≈ 0.79 the local demon's radius covers the entire half-box, so from that point onward the two demons see the same population and produce identical results.
+The classical and local demons use the same mean-based decision rule and exclude the arriving particle from the reference population. Only particles moving toward the door trigger the policy (arrival gate in the physics engine). The classical demon computes the mean over all particles on the arriving side; the local demon computes it over those within radius r. At r/L ≈ 0.79 the local demon's radius covers the entire half-box, so from that point onward the two demons see the same population and produce identical results.
+
+The optimal demon uses a different, strictly superior decision rule derived from first principles — it is the true theoretical upper bound.
+
+### The Optimal Decision Rule
+
+The optimal demon has perfect knowledge of both sides' temperatures ($T_L$, $T_R$) and particle counts ($N_L$, $N_R$). It asks the exact question: **will this crossing increase $\Delta T = T_R - T_L$?**
+
+**Left → right (sending a fast particle to the hot side).** When particle $i$ with speed $s$ crosses from left to right, the new temperatures are:
+
+$$T_L' = \frac{N_L \cdot T_L - \tfrac{1}{2}s^2}{N_L - 1}, \qquad T_R' = \frac{N_R \cdot T_R + \tfrac{1}{2}s^2}{N_R + 1}$$
+
+The change in $\Delta T$ is (for a left-to-right crossing):
+
+$$\Delta(\Delta T) = \frac{\tfrac{1}{2}s^2 - T_R}{N_R + 1} + \frac{\tfrac{1}{2}s^2 - T_L}{N_L - 1}$$
+
+Setting $\Delta(\Delta T) > 0$ and solving for $\frac{1}{2}s^2$:
+
+$$\tfrac{1}{2}s^2 > \frac{\dfrac{T_R}{N_R+1} + \dfrac{T_L}{N_L-1}}{\dfrac{1}{N_R+1} + \dfrac{1}{N_L-1}}$$
+
+The right-hand side is a **weighted average of both sides' temperatures**, with weights inversely proportional to the post-crossing pool sizes.
+
+**Right → left (sending a slow particle to the cold side).** By symmetric reasoning:
+
+$$\tfrac{1}{2}s^2 < \frac{\dfrac{T_R}{N_R-1} + \dfrac{T_L}{N_L+1}}{\dfrac{1}{N_R-1} + \dfrac{1}{N_L+1}}$$
+
+Three properties make this the optimal rule:
+
+1. **It operates in energy space ($\frac{1}{2}s^2$), not speed space.** The mean-based demons compare speeds, but temperature is mean kinetic energy. A particle with speed slightly above the mean speed can still have KE below the mean KE, because KE scales as $s^2$. The optimal threshold avoids this mismatch.
+2. **It uses information from both sides.** The adaptive demon only knows its own side's mean. The optimal demon knows both $T_L$ and $T_R$ and can compute the exact breakeven point where a crossing helps vs. hurts.
+3. **It is greedy-optimal.** Every individual crossing that satisfies the threshold increases ΔT. While a globally optimal strategy over the full trajectory would require dynamic programming, with 2000 particles and thousands of crossings the greedy solution is expected to be very close.
 
 ### The Sweep
 
@@ -45,7 +76,8 @@ To compare regimes fairly, the automated r-sweep:
 
 1. Initializes all 2000 particles once and saves the exact state (positions + velocities).
 2. Runs the classical (adaptive) demon from that saved state to convergence.
-3. Runs the local demon at 15 values of r/L from 0.02 to 1.0, each from the identical saved state.
+3. Runs the optimal ("god") demon from the same saved state to convergence.
+4. Runs the local demon at 15 values of r/L from 0.02 to 1.0, each from the identical saved state.
 
 Convergence is detected when ΔT changes by less than 2% of its peak value over a 30 sim-second lookback window, with a mandatory hold period of 40 additional seconds to confirm stability. ΔT and ΔS are measured at the moment of steady-state detection, not at end of run, to ensure consistent measurement across regimes with different minimum run times.
 
@@ -99,7 +131,7 @@ The adaptive baseline converges at 174 ± 37 s. Local policies converge on a sim
 
 ![Bits vs r/L](report_plots/bits_vs_r.png)
 
-Cumulative information bits rise steeply with r/L: 1,311 ± 170 bits at r/L = 0.02, 5,938 ± 431 at r/L = 0.09, and roughly 12,000–13,000 for r/L ≥ 0.5 (settling to ~13,153 ± 1,934 for r/L ≥ 0.79). The information cost is log₂(k+1) per decision, where k scales with density × r².
+Cumulative information bits rise steeply with $r/L$: 1,311 ± 170 bits at $r/L = 0.02$, 5,938 ± 431 at $r/L = 0.09$, and roughly 12,000–13,000 for $r/L \geq 0.5$ (settling to ~13,153 ± 1,934 for $r/L \geq 0.79$). The information cost is $\log_2(k+1)$ per decision, where $k$ scales with density $\times\, r^2$.
 
 The key ratio: r/L = 0.09 already achieves 92% of the adaptive baseline's sorting power with only 5,938 bits. Pushing to r/L = 0.30 (the peak at 106%) costs 11,648 bits — roughly 2× the budget for a modest improvement. Beyond the peak, additional information actively hurts: the local threshold loses its spatial advantage as it converges toward the global mean.
 
@@ -168,9 +200,11 @@ Each particle triggers the door policy **exactly once** per crossing attempt. Wi
 
 Both demons compare the arriving particle's speed to the mean speed of all particles on the same side (excluding the arriving particle). The only difference is the sample: the classical demon has a complete census; the local demon samples within radius r. Both exclude the arriving particle to ensure the local demon at r/L ≥ 0.79 produces results identical to the classical demon — this identity serves as a correctness check for the simulation.
 
-### Why the local demon can outperform the "global" benchmark
+### Why the local demon can outperform the classical benchmark
 
-The adaptive demon does not implement the mathematically optimal policy; it compresses its perfect knowledge into a single per-side mean. That statistic is blind to spatial structure. In practice, fast “would-have-crossed” particles congregate near the door while slower rejected particles drift away, so the local neighborhood around the door is hotter than the side-wide average. When r/L is modest, the local demon’s mean tracks that microenvironment and yields a threshold closer to the true decision boundary. Giving the adaptive demon truly optimal logic (e.g., comparing against the full speed distribution) would restore it as an upper bound, but under the shared mean-based rule it is entirely plausible — and now observed — that a local statistic beats a global average.
+The adaptive demon compresses its perfect knowledge into a single per-side mean speed. That statistic is blind to spatial structure. In practice, fast particles that just crossed linger near the door while rejected slow particles drift toward the far wall, so the local neighborhood around the door is hotter than the side-wide average. When r/L is modest, the local demon’s mean tracks that microenvironment and yields a threshold closer to the true decision boundary.
+
+The optimal (“god”) demon avoids this problem entirely by operating in energy space and using both sides’ state — it represents the true upper bound that no mean-based policy can exceed.
 
 ### Why ΔT is measured at steady-state detection
 

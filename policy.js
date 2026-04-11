@@ -25,17 +25,35 @@ function doorPolicy(i) {
   }
 
   if (demonType === 'god') {
-    // Rank-based "God" demon: only the fastest (toward cold->hot) or slowest (hot->cold) particle may pass
-    const stats = computeDoorDirectedExtrema(onLeft, i);
-    const infoPool = stats.count || N;
-    totalBits += Math.log2(infoPool + 1);
-    if (stats.count === 0) return false;
+    // Optimal demon: pass iff the crossing increases ΔT = T_R - T_L.
+    //
+    // For a left→right crossing of particle with KE = ½s²:
+    //   Δ(ΔT) = (½s² - T_R)/(N_R+1) + (½s² - T_L)/(N_L-1)
+    //   Pass iff ½s² > (T_R/(N_R+1) + T_L/(N_L-1)) / (1/(N_R+1) + 1/(N_L-1))
+    //
+    // For a right→left crossing:
+    //   Δ(ΔT) = (T_R - ½s²)/(N_R-1) - (½s² - T_L)/(N_L+1)
+    //   Pass iff ½s² < (T_R/(N_R-1) + T_L/(N_L+1)) / (1/(N_R-1) + 1/(N_L+1))
+    //
+    // Both thresholds are weighted averages of T_R and T_L in energy space.
+    const { tL, tR, nL, nR } = computeSideTemps();
+    totalBits += Math.log2(N);
+    const ke = 0.5 * speed * speed;
     if (onLeft) {
-      // Moving from left -> right: demand the maximum speed among door-directed peers
-      return stats.fastest !== null ? speed >= stats.fastest : false;
+      // left→right: pass fast particles to the hot side
+      if (nL <= 1) return false;
+      const wR = 1 / (nR + 1);
+      const wL = 1 / (nL - 1);
+      const threshold = (wR * tR + wL * tL) / (wR + wL);
+      return ke > threshold;
+    } else {
+      // right→left: pass slow particles to the cold side
+      if (nR <= 1) return false;
+      const wR = 1 / (nR - 1);
+      const wL = 1 / (nL + 1);
+      const threshold = (wR * tR + wL * tL) / (wR + wL);
+      return ke < threshold;
     }
-    // Moving from right -> left: only allow the slowest particle back to the cold side
-    return stats.slowest !== null ? speed <= stats.slowest : false;
   }
 
   if (demonType === 'local') {

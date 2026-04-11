@@ -215,8 +215,10 @@ def main() -> None:
 
     fixed_dt = [entry.get("baseline_fixed_deltaT") for entry in entries if entry.get("baseline_fixed_deltaT") is not None]
     adaptive_dt = [entry.get("baseline_adaptive_deltaT") for entry in entries if entry.get("baseline_adaptive_deltaT") is not None]
+    god_dt = [entry.get("baseline_god_deltaT") for entry in entries if entry.get("baseline_god_deltaT") is not None]
     fixed_time = [entry.get("baseline_fixed_steady_time") for entry in entries if entry.get("baseline_fixed_steady_time") is not None]
     adaptive_time = [entry.get("baseline_adaptive_steady_time") for entry in entries if entry.get("baseline_adaptive_steady_time") is not None]
+    god_time = [entry.get("baseline_god_steady_time") for entry in entries if entry.get("baseline_god_steady_time") is not None]
 
     out_dir = args.out.resolve()
 
@@ -225,6 +227,8 @@ def main() -> None:
         dt_baselines.append(("Classical (fixed)", float(np.mean(fixed_dt)), {"color": "#e76f51", "ls": "--"}))
     if adaptive_dt:
         dt_baselines.append(("Classical (adaptive)", float(np.mean(adaptive_dt)), {"color": "#2a9d8f", "ls": "--"}))
+    if god_dt:
+        dt_baselines.append(("Optimal (god)", float(np.mean(god_dt)), {"color": "#e76f51", "ls": "--"}))
 
     plot_with_band(
         x_vals,
@@ -242,6 +246,8 @@ def main() -> None:
         time_baselines.append(("Classical (fixed)", float(np.mean(fixed_time)), {"color": "#e76f51", "ls": "--"}))
     if adaptive_time:
         time_baselines.append(("Classical (adaptive)", float(np.mean(adaptive_time)), {"color": "#2a9d8f", "ls": "--"}))
+    if god_time:
+        time_baselines.append(("Optimal (god)", float(np.mean(god_time)), {"color": "#e76f51", "ls": "--"}))
 
     plot_with_band(
         x_vals,
