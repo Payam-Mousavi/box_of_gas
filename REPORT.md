@@ -105,7 +105,7 @@ Convergence is detected when ΔT changes by less than 2% of its peak value over 
 - Adaptive: $\Delta T$ = **0.91 ± 0.03** (steady at $t$ = 554 ± 39 s, 36,289 ± 1,992 bits)
 - Optimal (god): $\Delta T$ = **0.96 ± 0.03** (steady at $t$ = 510 ± 31 s, 40,659 ± 2,126 bits)
 
-The god demon averages 5.5% higher $\Delta T$ than adaptive with comparable variance. It converges slightly faster (510 vs 554 s) — the energy-based threshold is more selective per decision, but every accepted swap is guaranteed beneficial, so fewer wasted crossings are needed. At no seed does the god demon underperform adaptive, confirming its role as the theoretical upper bound.
+The god demon averages 5.5% higher $\Delta T$ than adaptive with comparable variance. It converges slightly faster (510 vs 554 s) — the energy-based threshold is more selective per decision, but every accepted swap is guaranteed beneficial, so fewer wasted crossings are needed. It beats adaptive in 4 of 5 seeds; the lone exception (seed 1001) is within the observed variance, so the aggregated ordering still follows the theoretical expectation.
 
 **Local demon results:**
 
@@ -127,7 +127,7 @@ The god demon averages 5.5% higher $\Delta T$ than adaptive with comparable vari
 | 0.93 | 0.911 ± 0.026 | 100.0% ± 0.0% | 94.9% ± 4.1% |
 | 1.00 | 0.911 ± 0.026 | 100.0% ± 0.0% | 94.9% ± 4.1% |
 
-The curve rises steeply from $r/L = 0.02$ ($\Delta T = 0.58$, 61% of god) to $r/L = 0.09$ ($\Delta T = 0.86$, 90% of god) while polling only 9% of the box width. By $r/L = 0.16$ the local demon matches adaptive (100%) and reaches 94% of god. The local demon plateaus around 94–97% of god across the mid-to-high range.
+The curve rises steeply from $r/L = 0.02$ ($\Delta T = 0.58$, 61% of god) to $r/L = 0.09$ ($\Delta T = 0.86$, 90% of god) while polling only 9% of the box width. By $r/L = 0.16$ the local demon matches adaptive (100%) and reaches 94% of god. Performance peaks near $r/L = 0.65$ with $\Delta T = 0.934 \pm 0.047$ (102.5% of adaptive, 97.3% of god) and then plateaus: expanding the radius further merely pushes the local mean toward the adaptive baseline.
 
 **The god demon is the clear upper bound.** At no fixed radius does the local demon's mean $\Delta T$ exceed god's. The 5% gap between adaptive and god ($\Delta T = 0.91$ vs $0.96$) represents the inherent cost of using a mean-based decision rule (speed space) vs the energy-based optimal threshold (energy space). The local demon, which uses the same mean-based rule as adaptive, cannot close this gap no matter how it samples.
 
@@ -147,7 +147,7 @@ The adaptive baseline converges at 554 ± 39 s. The god demon converges slightly
 
 Cumulative information bits rise steeply with $r/L$: 4,700 bits at $r/L = 0.02$, 17,745 at $r/L = 0.09$, and roughly 32,000–37,000 for $r/L \geq 0.5$ (settling to ~36,289 for $r/L \geq 0.86$). The information cost is $\log_2(k+1)$ per decision, where $k$ scales with density $\times\, r^2$. Total bits are higher than in the pre-paired-swap setup because the longer convergence time means more decisions.
 
-The key ratio: $r/L = 0.09$ achieves 95% of adaptive's sorting power with only 17,745 bits — less than half the adaptive budget of 36,289 bits. Pushing to $r/L = 0.44$ (the peak at 102% of adaptive) costs 35,910 bits, nearly matching the full adaptive budget for a marginal improvement.
+The key ratio: $r/L = 0.09$ achieves 95% of adaptive's sorting power with only 17,745 bits — less than half the adaptive budget of 36,289 bits. Pushing to $r/L = 0.65$ (the mean peak at 102.5% of adaptive) costs 37,757 bits, effectively matching the adaptive budget for a 2.5% gain.
 
 ### 3.4 Entropy vs Temperature Imbalance
 
@@ -215,7 +215,7 @@ Both demons compare the arriving particle's speed to the mean speed of all parti
 
 The adaptive demon compresses its perfect knowledge into a single per-side mean speed. That statistic is blind to spatial structure. In practice, fast particles that just crossed linger near the door while rejected slow particles drift toward the far wall, so the local neighborhood around the door is hotter than the side-wide average. When r/L is modest, the local demon’s mean tracks that microenvironment and yields a threshold closer to the true decision boundary.
 
-The optimal (“god”) demon avoids this limitation entirely by using an energy-based threshold with both-sides information. Under paired swaps, it achieves $\Delta T = 0.96$ vs adaptive’s $0.91$ — a consistent 5.5% advantage that represents the true theoretical upper bound for any greedy policy. The god demon outperforms adaptive on every seed, confirming the theoretical expectation: more information + optimal decision rule = better outcome.
+The optimal (“god”) demon avoids this limitation entirely by using an energy-based threshold with both-sides information. Under paired swaps, it achieves $\Delta T = 0.96$ vs adaptive’s $0.91$ — a consistent 5.5% advantage that represents the true theoretical upper bound for any greedy policy. It beats adaptive in 4 of 5 seeds; the single exception (seed 1001) stays within one standard deviation of the aggregated mean, so the expectancy ordering still holds.
 
 ### Why ΔT is measured at steady-state detection
 
@@ -239,6 +239,6 @@ Early slope-based detection triggered near t = 0 when ΔT was flat near zero (no
 
 6. **The entropy-temperature tradeoff is clean.** More sorting corresponds to more negative $\Delta S/N$, with values ranging from $-0.03$ at $r/L = 0.02$ to $-0.13$ at saturation. The relationship is well-defined across all seeds and radii.
 
-7. **Information cost grows faster than sorting quality.** Moving from $r/L = 0.09$ (95% of adaptive) to $r/L = 0.44$ (102%) doubles the bit budget (17,745 → 35,910 bits) for a marginal improvement. The optimal operating point is around $r/L \approx 0.09$–$0.16$.
+7. **Information cost grows faster than sorting quality.** Moving from $r/L = 0.09$ (95% of adaptive) to $r/L = 0.65$ (102.5%) more than doubles the bit budget (17,745 → 37,757 bits) for a marginal improvement. The optimal operating point is around $r/L \approx 0.09$–$0.16$.
 
 The central takeaway: **you don't need full centralization.** A small sensing radius ($r/L \approx 0.09$) captures 95% of the global demon's sorting power at half the information cost. The remaining 5% gap to the theoretical optimum is not about information quantity — it's about the decision rule (speed-based vs energy-based thresholding). The second law is not violated — Landauer's principle ensures the global entropy budget balances — but the results show that local knowledge is cheap and effective, even when it cannot match the theoretical ceiling.
