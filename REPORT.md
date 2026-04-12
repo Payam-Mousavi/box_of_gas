@@ -1,4 +1,4 @@
-# Almost All You Need: How Local Information Recovers 95% of Optimal Sorting in Maxwell's Demon
+# Local vs. Global Information in Paired-Swap Maxwell Demons
 
 ## Executive Summary
 
