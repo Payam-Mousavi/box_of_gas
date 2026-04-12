@@ -37,7 +37,7 @@ uv run playwright install chromium    # first time only
 uv run python experiments.py --particles 2000 --out experiments_out
 ```
 
-The script defaults to eight consecutive seeds (1000-1007) and a 2400 s sweep timeout. Command-line options let you control particle count, temperature, radius, door width, seed range, and whether plots are generated. Outputs include timestamped CSV/plot folders plus a JSON summary with per-run stats.
+The script defaults to eight consecutive seeds (1000-1007) and a 2400 s sweep timeout. Command-line options let you control particle count, temperature, radius, door width, seed range, and whether plots are generated. Pass `--seed <value>` to run a single explicit sweep (it overrides `--seeds`/`--seed-base`). Outputs include timestamped CSV/plot folders plus a JSON summary with per-run stats.
 
 ### Updating Report Assets
 
@@ -56,7 +56,7 @@ If `--summary` is omitted, the script picks the newest summary in `experiments_o
 
 1. **No demon (control):** Door is open, particles pass freely. Both sides equilibrate to the same temperature.
 2. **Classical Maxwell's demon (adaptive):** Uses the mean speed of all particles on the arriving side (excluding the arriving particle). This is our global-information benchmark — the same mean-based rule as the local demon, but with a complete sample.
-3. **Optimal ("god") demon:** Uses an energy-based greedy-optimal threshold with perfect knowledge of both sides' temperatures and particle counts. Passes a particle iff the crossing increases ΔT. This is the theoretical upper bound for any greedy policy.
+3. **Optimal ("god") demon:** Enforces the paired-swap rule with a shared energy threshold $\theta = \dfrac{T_R/N_R + T_L/N_L}{1/N_R + 1/N_L}$. Left arrivals queue only if their kinetic energy exceeds $\theta$; right arrivals queue only if it falls below $\theta$. That guarantees every swap moves energy in the correct direction.
 4. **Local "swarm" demon:** Each particle, upon arriving at the door, polls same-side neighbors within radius `r`, compares its speed to the local average, and decides whether to cross. As `r` grows to include the entire box, this approaches the adaptive classical demon's behavior.
 
 ### The Money Plot
@@ -88,10 +88,11 @@ The automated **r-sweep** runs all four regimes from identical initial condition
 - **Geometric trigger:** particle overlapping the door segment triggers the policy decision.
 - **Rejection:** particle reflects elastically off the partition.
 - **Decision timing:** arrival-only.
+- **Paired swaps:** accepted particles park at the door, and the demon swaps one left and one right candidate simultaneously. That enforces $\Delta N_L = \Delta N_R = 0$ and prevents runaway imbalance.
 
 ### Classical Demon Policy
 
-- **Adaptive threshold:** mean speed of all particles on the arriving side, excluding the arriving particle. Ongoing global knowledge. Both mean-based demons (adaptive and local) use the same reference population and answer the same question — the classical demon just has a perfect sample (no radius limit).
+- **Adaptive threshold:** mean speed of all particles on the arriving side, excluding the arriving particle. Ongoing global knowledge. Both mean-based demons (adaptive and local) use the same reference population and answer the same question — the classical demon just has a perfect sample (no radius limit). Accepted particles wait in a door queue until the opposite queue also has a candidate so the swap keeps both chambers' counts unchanged.
 
 ### Local Demon Policy
 
@@ -107,6 +108,8 @@ When particle `i` arrives at the door from side S:
 5. **If the neighbor set is empty -> reject.** No information = no basis for a decision.
 
 **Bidirectional rule:** particles can cross in both directions. A slow particle on the right can decide to cross left.
+
+**Paired swaps:** once a particle clears the rule above it parks at the partition until the opposite side produces a partner. The demon then swaps that pair simultaneously, keeping $N_L$ and $N_R$ constant.
 
 ### Measurements
 

@@ -68,6 +68,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Automate Box of Gas sweeps.")
     parser.add_argument("--seeds", type=int, default=8, help="number of sweeps to run")
     parser.add_argument("--seed-base", type=int, default=1000, help="starting seed value")
+    parser.add_argument("--seed", type=int, default=None, help="run a single explicit seed (overrides --seeds/--seed-base)")
     parser.add_argument("--particles", type=int, default=500, help="slider N value")
     parser.add_argument("--temperature", type=float, default=1.0, help="slider T value")
     parser.add_argument("--radius", type=float, default=0.5, help="particle radius slider")
@@ -78,7 +79,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--timeout",
         type=int,
-        default=2400,
+        default=3600,
         help="max seconds to wait per sweep (<=0 disables)",
     )
     parser.add_argument("--out", type=Path, default=ROOT / "experiments_out", help="output directory")
@@ -170,27 +171,64 @@ async def wait_for_sweep(page: Page, timeout_s: int) -> None:
             """() => {
             const running = (typeof sweepRunning !== 'undefined') ? sweepRunning : false;
             const statusEl = document.getElementById('sweepStatus');
+            const phase = (typeof sweepPhase !== 'undefined') ? sweepPhase : 'idle';
+            const sTime = (typeof simTime !== 'undefined') ? simTime : 0;
+            const steady = (typeof isSteady !== 'undefined') ? isSteady : false;
+            const sdt = (typeof steadyTime !== 'undefined') ? steadyTime : null;
+            const pk = (typeof peakDT !== 'undefined') ? peakDT : 0;
+            const qL = (typeof swapQueueLeft !== 'undefined') ? swapQueueLeft.length : 0;
+            const qR = (typeof swapQueueRight !== 'undefined') ? swapQueueRight.length : 0;
+            let curDT = 0;
+            if (typeof dtHistory !== 'undefined' && dtHistory.length > 0)
+                curDT = dtHistory[dtHistory.length - 1][1];
             return {
                 done: running === false,
                 running,
-                status: statusEl ? statusEl.textContent || '' : ''
+                status: statusEl ? statusEl.textContent || '' : '',
+                phase,
+                simTime: sTime,
+                isSteady: steady,
+                steadyTime: sdt,
+                peakDT: pk,
+                curDT,
+                queueLeft: qL,
+                queueRight: qR,
             };
         }"""
         )
         status = (result.get("status") or "").strip()
-        if status and status != last_status:
-            sys.stdout.write(f"\r[experiments] {status:70.70s}")
-            sys.stdout.flush()
-            last_status = status
         running_flag = bool(result.get("running"))
         if running_flag:
             sweep_started = True
+
+        # Build detailed status line
+        phase = result.get("phase", "?")
+        sim_t = result.get("simTime", 0)
+        cur_dt = result.get("curDT", 0)
+        peak_dt = result.get("peakDT", 0)
+        is_steady = result.get("isSteady", False)
+        steady_t = result.get("steadyTime")
+        q_left = result.get("queueLeft", 0)
+        q_right = result.get("queueRight", 0)
+        elapsed = time.monotonic() - start
+
+        detail = (
+            f"phase={phase} t={sim_t:.0f} ΔT={cur_dt:+.3f} peak={peak_dt:.3f} "
+            f"steady={is_steady} qL={q_left} qR={q_right} [{elapsed:.0f}s]"
+        )
+        line = f"[experiments] {status}  |  {detail}"
+        sys.stdout.write(f"\r{line:120.120s}")
+        sys.stdout.flush()
+        if status and status != last_status:
+            last_status = status
+
         if sweep_started and bool(result.get("done")):
-            if last_status:
-                sys.stdout.write("\r" + " " * 80 + "\r")
-                sys.stdout.flush()
+            sys.stdout.write("\r" + " " * 120 + "\r")
+            sys.stdout.flush()
             return
         if timeout_s > 0 and (time.monotonic() - start) > timeout_s:
+            sys.stdout.write("\n")
+            sys.stdout.flush()
             raise TimeoutError(f"sweep timed out after {timeout_s} seconds")
         await asyncio.sleep(1.0)
 
@@ -311,8 +349,12 @@ async def main_async(cfg: argparse.Namespace) -> None:
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=cfg.headless)
         with serve_directory(ROOT) as base_url:
-            for i in range(cfg.seeds):
-                seed = cfg.seed_base + i
+            if cfg.seed is not None:
+                seed_list = [cfg.seed]
+            else:
+                seed_list = [cfg.seed_base + i for i in range(cfg.seeds)]
+            total = len(seed_list)
+            for idx, seed in enumerate(seed_list, start=1):
                 stem = f"seed_{seed:04d}"
                 csv_path = csv_dir / f"{stem}.csv"
                 print(f"[experiments] Running sweep for seed {seed} ...")
@@ -322,7 +364,7 @@ async def main_async(cfg: argparse.Namespace) -> None:
                 summary = summarize_run(csv_path, plots_target, not cfg.skip_analysis)
                 summary.seed = seed
                 summaries.append(summary)
-                render_progress(i + 1, cfg.seeds, suffix=f"seed {seed} complete")
+                render_progress(idx, total, suffix=f"seed {seed} complete")
         await browser.close()
 
     summary_path = cfg.out / f"experiments_summary_{timestamp}.json"

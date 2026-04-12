@@ -24,6 +24,9 @@ let initialS = 0;
 let totalBits = 0;
 let running = false, animId = null;
 let doorCrossing;
+let queuedState;
+let swapQueueLeft = [];
+let swapQueueRight = [];
 
 // History
 let keHistory = [], dtHistory = [], dsHistory = [];
@@ -114,10 +117,13 @@ function init(nParticles, temperature, radius) {
   initialMeanSpeed = sumSpeed/N;
 
   simTime=0; totalBits=0;
+  doorCrossing = new Uint8Array(N);
+  queuedState = new Uint8Array(N);
+  swapQueueLeft = [];
+  swapQueueRight = [];
   initialKE = computeKE();
   keHistory=[]; dtHistory=[]; dsHistory=[];
   isSteady=false; steadyTime=null; steadyDT=null; steadyDS=null; peakDT=0;
-  doorCrossing = new Uint8Array(N);
 
   const s0 = computeSideTemps();
   initialS = computeEntropy(s0.tL, s0.nL, s0.tR, s0.nR);
@@ -128,15 +134,35 @@ function init(nParticles, temperature, radius) {
 // ============================================================
 function computeKE() {
   let ke=0;
-  for (let i=0;i<N;i++) ke += vx[i]*vx[i]+vy[i]*vy[i];
+  for (let i=0;i<N;i++) {
+    if (queuedState[i]) continue; // queued particles are frozen, KE stored in queue
+    ke += vx[i]*vx[i]+vy[i]*vy[i];
+  }
+  // Add back KE of queued particles from their saved velocities
+  for (const entry of swapQueueLeft) {
+    ke += entry.savedVx*entry.savedVx + entry.savedVy*entry.savedVy;
+  }
+  for (const entry of swapQueueRight) {
+    ke += entry.savedVx*entry.savedVx + entry.savedVy*entry.savedVy;
+  }
   return 0.5*ke;
 }
 
 function computeSideTemps() {
   let keL=0,keR=0,nL=0,nR=0;
   for (let i=0;i<N;i++) {
+    if (queuedState[i]) continue; // counted separately below
     const ke = 0.5*(vx[i]*vx[i]+vy[i]*vy[i]);
-    if (x[i]<PARTITION_X) { keL+=ke; nL++; } else { keR+=ke; nR++; }
+    if (x[i] < PARTITION_X) { keL+=ke; nL++; } else { keR+=ke; nR++; }
+  }
+  // Queued particles belong to their original side with their saved KE
+  for (const entry of swapQueueLeft) {
+    const ke = 0.5*(entry.savedVx*entry.savedVx + entry.savedVy*entry.savedVy);
+    keL+=ke; nL++;
+  }
+  for (const entry of swapQueueRight) {
+    const ke = 0.5*(entry.savedVx*entry.savedVx + entry.savedVy*entry.savedVy);
+    keR+=ke; nR++;
   }
   return { tL: nL>0?keL/nL:0, tR: nR>0?keR/nR:0, nL, nR };
 }
@@ -157,8 +183,16 @@ function computeSideStats(onLeft, excludeIdx) {
   let count = 0;
   for (let i = 0; i < N; i++) {
     if (i === excludeIdx) continue;
+    if (queuedState[i]) continue; // queued particles excluded — counted below
     if ((x[i] < PARTITION_X) !== onLeft) continue;
     sum += Math.sqrt(vx[i]*vx[i] + vy[i]*vy[i]);
+    count++;
+  }
+  // Add queued particles with their saved speeds
+  const queue = onLeft ? swapQueueLeft : swapQueueRight;
+  for (const entry of queue) {
+    if (entry.idx === excludeIdx) continue;
+    sum += Math.sqrt(entry.savedVx*entry.savedVx + entry.savedVy*entry.savedVy);
     count++;
   }
   return {
@@ -222,6 +256,7 @@ function buildCellList() {
 }
 
 function resolveCollision(i, j) {
+  if (queuedState[i] || queuedState[j]) return; // queued particles don't collide
   const dx=x[j]-x[i], dy=y[j]-y[i];
   const dist2 = dx*dx+dy*dy;
   const minDist = 2*particleRadius;
@@ -264,23 +299,26 @@ function handleWalls() {
   const doorYMin = BOX_H/2-doorHalf, doorYMax = BOX_H/2+doorHalf;
 
   for (let i=0;i<N;i++) {
+    // Queued particles are frozen at the door — skip all wall/partition logic
+    if (queuedState[i]) continue;
+
     if (x[i]<particleRadius)         { x[i]=particleRadius;           vx[i]=Math.abs(vx[i]); }
     if (x[i]>BOX_W-particleRadius)   { x[i]=BOX_W-particleRadius;    vx[i]=-Math.abs(vx[i]); }
     if (y[i]<particleRadius)         { y[i]=particleRadius;           vy[i]=Math.abs(vy[i]); }
     if (y[i]>BOX_H-particleRadius)   { y[i]=BOX_H-particleRadius;    vy[i]=-Math.abs(vy[i]); }
 
     if (Math.abs(x[i]-PARTITION_X) < particleRadius) {
-      if (doorCrossing[i]) continue;
+      const onLeft = x[i] < PARTITION_X;
 
-      const movingToward = (x[i] < PARTITION_X && vx[i] > 0) || (x[i] >= PARTITION_X && vx[i] < 0);
+      const movingToward = (onLeft && vx[i] > 0) || (!onLeft && vx[i] < 0);
       if (!movingToward) continue;
 
       const inDoor = y[i]>=doorYMin && y[i]<=doorYMax;
       if (inDoor && doorPolicy(i)) {
-        doorCrossing[i] = 1;
+        enqueueSwapCandidate(i, onLeft);
       } else {
-        if (x[i]<PARTITION_X) { x[i]=PARTITION_X-particleRadius; vx[i]=-Math.abs(vx[i]); }
-        else                  { x[i]=PARTITION_X+particleRadius; vx[i]=Math.abs(vx[i]); }
+        if (onLeft) { x[i]=PARTITION_X-particleRadius; vx[i]=-Math.abs(vx[i]); }
+        else        { x[i]=PARTITION_X+particleRadius; vx[i]=Math.abs(vx[i]); }
       }
     } else {
       doorCrossing[i] = 0;
@@ -288,11 +326,62 @@ function handleWalls() {
   }
 }
 
+function enqueueSwapCandidate(idx, onLeft) {
+  // Save the particle's velocity before pinning
+  const savedVxI = vx[idx];
+  const savedVyI = vy[idx];
+
+  queuedState[idx] = onLeft ? 1 : 2;
+  // Pin at the door with zero velocity — excluded from physics while queued
+  const epsilon = Math.max(0.05, particleRadius * 0.5);
+  x[idx] = onLeft ? PARTITION_X - epsilon : PARTITION_X + epsilon;
+  vx[idx] = 0;
+  vy[idx] = 0;
+  doorCrossing[idx] = 1;
+
+  const entry = { idx, savedVx: savedVxI, savedVy: savedVyI };
+  if (onLeft) swapQueueLeft.push(entry);
+  else swapQueueRight.push(entry);
+  attemptSwap();
+}
+
+function attemptSwap() {
+  while (swapQueueLeft.length > 0 && swapQueueRight.length > 0) {
+    const left = swapQueueLeft.shift();
+    const right = swapQueueRight.shift();
+    performSwap(left, right);
+  }
+}
+
+function performSwap(left, right) {
+  const leftIdx = left.idx;
+  const rightIdx = right.idx;
+  const epsilon = particleRadius + 0.1;
+
+  queuedState[leftIdx] = 0;
+  queuedState[rightIdx] = 0;
+  doorCrossing[leftIdx] = 0;
+  doorCrossing[rightIdx] = 0;
+
+  // Left particle moves to right side — restore saved velocity, ensure vx points right
+  x[leftIdx] = PARTITION_X + epsilon;
+  vx[leftIdx] = Math.abs(left.savedVx);
+  vy[leftIdx] = left.savedVy;
+
+  // Right particle moves to left side — restore saved velocity, ensure vx points left
+  x[rightIdx] = PARTITION_X - epsilon;
+  vx[rightIdx] = -Math.abs(right.savedVx);
+  vy[rightIdx] = right.savedVy;
+}
+
 // ============================================================
 // Time step
 // ============================================================
 function step() {
-  for (let i=0;i<N;i++) { x[i]+=vx[i]*dt; y[i]+=vy[i]*dt; }
+  for (let i=0;i<N;i++) {
+    if (queuedState[i]) continue; // frozen at door
+    x[i]+=vx[i]*dt; y[i]+=vy[i]*dt;
+  }
   handleWalls();
   handleCollisions();
   simTime += dt;

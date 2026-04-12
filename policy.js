@@ -1,5 +1,11 @@
 // ============================================================
 // Demon door policies
+//
+// Each policy answers the question "should this arrival be queued for a
+// paired swap?" sim.js maintains two FIFO queues (left→right candidates and
+// right→left candidates) and only executes a swap when both queues are
+// non-empty. That guarantees ΔN_L = ΔN_R = 0 at all times while still letting
+// each policy run the same decision logic it would use for a single crossing.
 // ============================================================
 
 function doorPolicy(i) {
@@ -25,35 +31,19 @@ function doorPolicy(i) {
   }
 
   if (demonType === 'god') {
-    // Optimal demon: pass iff the crossing increases ΔT = T_R - T_L.
-    //
-    // For a left→right crossing of particle with KE = ½s²:
-    //   Δ(ΔT) = (½s² - T_R)/(N_R+1) + (½s² - T_L)/(N_L-1)
-    //   Pass iff ½s² > (T_R/(N_R+1) + T_L/(N_L-1)) / (1/(N_R+1) + 1/(N_L-1))
-    //
-    // For a right→left crossing:
-    //   Δ(ΔT) = (T_R - ½s²)/(N_R-1) - (½s² - T_L)/(N_L+1)
-    //   Pass iff ½s² < (T_R/(N_R-1) + T_L/(N_L+1)) / (1/(N_R-1) + 1/(N_L+1))
-    //
-    // Both thresholds are weighted averages of T_R and T_L in energy space.
+    // Optimal demon under paired swaps: one left candidate and one right candidate
+    // cross simultaneously, so Δ(ΔT) = (e_left - e_right) * (1/N_L + 1/N_R).
+    // The demon therefore enforces a single energy threshold θ that sits between
+    // the two sides' temperatures. Left arrivals must have ½s² > θ, right arrivals
+    // must have ½s² < θ, which guarantees e_left > e_right for every swap.
     const { tL, tR, nL, nR } = computeSideTemps();
+    if (nL === 0 || nR === 0) return false;
     totalBits += Math.log2(N);
     const ke = 0.5 * speed * speed;
-    if (onLeft) {
-      // left→right: pass fast particles to the hot side
-      if (nL <= 1) return false;
-      const wR = 1 / (nR + 1);
-      const wL = 1 / (nL - 1);
-      const threshold = (wR * tR + wL * tL) / (wR + wL);
-      return ke > threshold;
-    } else {
-      // right→left: pass slow particles to the cold side
-      if (nR <= 1) return false;
-      const wR = 1 / (nR - 1);
-      const wL = 1 / (nL + 1);
-      const threshold = (wR * tR + wL * tL) / (wR + wL);
-      return ke < threshold;
-    }
+    const wR = 1 / nR;
+    const wL = 1 / nL;
+    const threshold = (wR * tR + wL * tL) / (wR + wL);
+    return onLeft ? ke > threshold : ke < threshold;
   }
 
   if (demonType === 'local') {
@@ -63,9 +53,19 @@ function doorPolicy(i) {
     let sumSpd=0, count=0;
     for (let j=0;j<N;j++) {
       if (j===i) continue;
+      if (queuedState[j]) continue; // queued particles counted separately below
       if ((x[j]<PARTITION_X) !== onLeft) continue;
       if ((x[j]-x[i])**2+(y[j]-y[i])**2 <= r2) {
         sumSpd += Math.sqrt(vx[j]*vx[j]+vy[j]*vy[j]);
+        count++;
+      }
+    }
+    // Include queued particles from same side if within radius
+    const queue = onLeft ? swapQueueLeft : swapQueueRight;
+    for (const entry of queue) {
+      if (entry.idx===i) continue;
+      if ((x[entry.idx]-x[i])**2+(y[entry.idx]-y[i])**2 <= r2) {
+        sumSpd += Math.sqrt(entry.savedVx*entry.savedVx+entry.savedVy*entry.savedVy);
         count++;
       }
     }

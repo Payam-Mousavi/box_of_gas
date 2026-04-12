@@ -61,6 +61,9 @@ function restoreInitialState() {
   keHistory = []; dtHistory = []; dsHistory = [];
   isSteady = false; steadyTime = null; steadyDT = null; steadyDS = null; peakDT = 0;
   doorCrossing = new Uint8Array(N);
+  queuedState = new Uint8Array(N);
+  swapQueueLeft = [];
+  swapQueueRight = [];
   const s0 = computeSideTemps();
   initialS = computeEntropy(s0.tL, s0.nL, s0.tR, s0.nR);
 }

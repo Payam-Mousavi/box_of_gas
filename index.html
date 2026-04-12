@@ -208,7 +208,7 @@ function loop() {
   if (sweepRunning) {
     const SWEEP_MAX_TIME = 800;
     const phase = typeof sweepPhase !== 'undefined' ? sweepPhase : 'idle';
-    const minTime = (phase === 'baseline-adaptive')
+    const minTime = (phase === 'baseline-adaptive' || phase === 'baseline-god')
       ? MIN_SWEEP_TIME_BASELINE
       : MIN_SWEEP_TIME_LOCAL;
     const steadyHoldMet = isSteady && steadyTime !== null &&
