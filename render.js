@@ -44,8 +44,23 @@ function renderSim() {
   const maxSpeed = 3*Math.sqrt(T);
   const r = Math.max(particleRadius*SCALE, 1.5);
 
+  // Queued particles have vx=vy=0 (pinned); look up their saved velocity
+  // so they render at their true speed instead of ice-blue.
+  const savedByIdx = new Map();
+  if (typeof swapQueueLeft !== 'undefined') {
+    for (const e of swapQueueLeft) savedByIdx.set(e.idx, e);
+  }
+  if (typeof swapQueueRight !== 'undefined') {
+    for (const e of swapQueueRight) savedByIdx.set(e.idx, e);
+  }
+
   for (let i=0;i<N;i++) {
-    const speed = Math.sqrt(vx[i]*vx[i]+vy[i]*vy[i]);
+    let sx = vx[i], sy = vy[i];
+    if (queuedState && queuedState[i]) {
+      const entry = savedByIdx.get(i);
+      if (entry) { sx = entry.savedVx; sy = entry.savedVy; }
+    }
+    const speed = Math.sqrt(sx*sx + sy*sy);
     simCtx.beginPath();
     simCtx.arc(x[i]*SCALE_X, (BOX_H-y[i])*SCALE_Y, r, 0, 2*Math.PI);
     simCtx.fillStyle = speedColor(speed, maxSpeed);

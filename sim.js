@@ -326,6 +326,9 @@ function handleWalls() {
   }
 }
 
+const QUEUE_MAX_WAIT = 3;        // sim-seconds a lone candidate waits before release
+const QUEUE_MAX_IMBALANCE = 2;   // hard cap on how much longer one queue may be than the other
+
 function enqueueSwapCandidate(idx, onLeft) {
   // Save the particle's velocity before pinning
   const savedVxI = vx[idx];
@@ -339,7 +342,7 @@ function enqueueSwapCandidate(idx, onLeft) {
   vy[idx] = 0;
   doorCrossing[idx] = 1;
 
-  const entry = { idx, savedVx: savedVxI, savedVy: savedVyI };
+  const entry = { idx, savedVx: savedVxI, savedVy: savedVyI, enqueueTime: simTime };
   if (onLeft) swapQueueLeft.push(entry);
   else swapQueueRight.push(entry);
   attemptSwap();
@@ -350,6 +353,35 @@ function attemptSwap() {
     const left = swapQueueLeft.shift();
     const right = swapQueueRight.shift();
     performSwap(left, right);
+  }
+}
+
+function releaseQueuedParticle(entry, onLeft) {
+  const i = entry.idx;
+  const epsilon = particleRadius + 0.1;
+  queuedState[i] = 0;
+  doorCrossing[i] = 0;
+  // Put back just inside the original side, moving away from the partition
+  x[i] = onLeft ? PARTITION_X - epsilon : PARTITION_X + epsilon;
+  vx[i] = onLeft ? -Math.abs(entry.savedVx) : Math.abs(entry.savedVx);
+  vy[i] = entry.savedVy;
+}
+
+function drainStaleQueueEntries() {
+  // Queues are append-only, so oldest entries are at the front.
+  // 1) Time-based release: any lone candidate whose partner never arrives goes home.
+  while (swapQueueLeft.length > 0 && simTime - swapQueueLeft[0].enqueueTime > QUEUE_MAX_WAIT) {
+    releaseQueuedParticle(swapQueueLeft.shift(), true);
+  }
+  while (swapQueueRight.length > 0 && simTime - swapQueueRight[0].enqueueTime > QUEUE_MAX_WAIT) {
+    releaseQueuedParticle(swapQueueRight.shift(), false);
+  }
+  // 2) Imbalance cap: prevent one side from visibly piling up at the door.
+  while (swapQueueLeft.length > swapQueueRight.length + QUEUE_MAX_IMBALANCE) {
+    releaseQueuedParticle(swapQueueLeft.shift(), true);
+  }
+  while (swapQueueRight.length > swapQueueLeft.length + QUEUE_MAX_IMBALANCE) {
+    releaseQueuedParticle(swapQueueRight.shift(), false);
   }
 }
 
@@ -385,6 +417,7 @@ function step() {
   handleWalls();
   handleCollisions();
   simTime += dt;
+  drainStaleQueueEntries();
 
   if (keHistory.length===0 || simTime - keHistory[keHistory.length-1][0] > 0.1) {
     const ke = computeKE();
