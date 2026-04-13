@@ -10,6 +10,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPORT_MD = HERE / "REPORT.md"
 OUTPUT = HERE / "report.docx"
+REFERENCE = HERE / "reference.docx"
 
 
 def convert() -> None:
@@ -17,10 +18,12 @@ def convert() -> None:
         "pandoc",
         str(REPORT_MD),
         "-o", str(OUTPUT),
-        "--from", "markdown",
+        "--from", "markdown+tex_math_single_backslash+tex_math_dollars",
         "--to", "docx",
         "--resource-path", str(HERE),
     ]
+    if REFERENCE.exists():
+        cmd.extend(["--reference-doc", str(REFERENCE)])
 
     try:
         subprocess.run(cmd, check=True, capture_output=True, text=True)
