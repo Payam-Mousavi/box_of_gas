@@ -96,7 +96,7 @@ Convergence is detected when ΔT changes by less than 2% of its peak value over 
 
 ## 3. Results
 
-### 3.1 The Money Plot: ΔT vs r/L
+### 3.1 ΔT vs r/L
 
 ![ΔT vs r/L](report_plots/sweep_deltaT.png)
 

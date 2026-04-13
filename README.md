@@ -1,10 +1,30 @@
 # Box of Gas — Centralized vs. Decentralized Control Simulator
 
-A 2D particle simulation exploring how much of Maxwell's Demon sorting power can be recovered using only local information. Particles in a box follow Maxwell-Boltzmann statistics with elastic collisions. A partition with a door divides the box, and different "demon" policies control which particles pass through.
+A 2D particle simulation exploring how much of Maxwell's Demon sorting power can be recovered using only local information. Particles in a box follow Maxwell-Boltzmann statistics with elastic collisions. A partition with a door divides the box, and different "demon" policies control which particles pass through. Crossings use a **paired-swap rule** (one left + one right candidate swap simultaneously) so $\Delta N_L = \Delta N_R = 0$ at all times and the steady-state $\Delta T$ is well-defined.
 
 The core question: **how much of the demon's sorting power can be recovered using only local information?**
 
+**TL;DR (5 seeds, N = 2000):** the optimal ("god") demon reaches $\Delta T = 0.96 \pm 0.03$ — the greedy-optimal upper bound. A local demon polling just 9% of the box width ($r/L = 0.09$) recovers 95% of the classical adaptive demon and 90% of god, at less than half the information budget. See [REPORT.md](REPORT.md) for the full write-up.
+
 ![Simulator UI](report_plots/screenshot.png)
+
+## Headline Plots
+
+ΔT vs neighborhood radius — god demon sets the ceiling, local catches up fast:
+
+![ΔT vs r/L](report_plots/sweep_deltaT.png)
+
+Information cost grows steeply with r; most of the sorting is already won at small r:
+
+![Information cost vs r/L](report_plots/bits_vs_r.png)
+
+Centralization ↔ information ↔ sorting trade-off (color = bits/sim-s):
+
+![Centralization trade-off](report_plots/centralization_tradeoff.png)
+
+Entropy signature — larger ΔT pairs with more negative ΔS/N, as expected:
+
+![Entropy vs ΔT](report_plots/entropy_vs_deltaT.png)
 
 ## How to Run
 
@@ -37,7 +57,7 @@ uv run playwright install chromium    # first time only
 uv run python experiments.py --particles 2000 --out experiments_out
 ```
 
-The script defaults to eight consecutive seeds (1000-1007) and a 2400 s sweep timeout. Command-line options let you control particle count, temperature, radius, door width, seed range, and whether plots are generated. Pass `--seed <value>` to run a single explicit sweep (it overrides `--seeds`/`--seed-base`). Outputs include timestamped CSV/plot folders plus a JSON summary with per-run stats.
+The script defaults to eight consecutive seeds (1000-1007) and a 3600 s sweep timeout. Command-line options let you control particle count, temperature, radius, door width, seed range, and whether plots are generated. Pass `--seed <value>` to run a single explicit sweep (it overrides `--seeds`/`--seed-base`). Outputs include timestamped CSV/plot folders plus a JSON summary with per-run stats.
 
 ### Updating Report Assets
 
@@ -59,13 +79,13 @@ If `--summary` is omitted, the script picks the newest summary in `experiments_o
 3. **Optimal ("god") demon:** Enforces the paired-swap rule with a shared energy threshold $\theta = \dfrac{T_R/N_R + T_L/N_L}{1/N_R + 1/N_L}$. Left arrivals queue only if their kinetic energy exceeds $\theta$; right arrivals queue only if it falls below $\theta$. That guarantees every swap moves energy in the correct direction.
 4. **Local "swarm" demon:** Each particle, upon arriving at the door, polls same-side neighbors within radius `r`, compares its speed to the local average, and decides whether to cross. As `r` grows to include the entire box, this approaches the adaptive classical demon's behavior.
 
-### The Money Plot
+### The r-Sweep Comparison
 
 The automated **r-sweep** runs all four regimes from identical initial conditions and produces:
 
 - **ΔT vs r/L**: sorting quality as a function of neighborhood radius. Shows a steep rise where most sorting power is recovered well before `r = L`.
 - **Time to steady state vs r/L**: how quickly each regime converges.
-- **Classical adaptive baseline** drawn as a horizontal reference line for comparison.
+- **Adaptive and god baselines** drawn as horizontal reference lines. Under paired swaps the god demon ($\Delta T \approx 0.96$) consistently sits above adaptive ($\Delta T \approx 0.91$); the local demon plateaus between them and matches adaptive exactly once $r/L \gtrsim 0.86$.
 
 ## Design Decisions
 
@@ -130,13 +150,13 @@ Minimum sim time of 100 before checking. During sweeps, an additional **hold per
 
 The automated sweep:
 
-1. Initializes particles once and saves state.
+1. Initializes particles once and saves state (positions, velocities, and swap-queue state).
 2. Runs classical (adaptive) from saved state to convergence.
 3. Runs optimal (god) from saved state to convergence.
 4. Sweeps 15 values of r/L from 0.02 to 1.0, each from the same saved state.
 5. Plots dT and time-to-steady vs r/L with both baselines as horizontal reference lines.
 
-All runs share identical initial conditions, so differences are purely due to the demon policy.
+All runs share identical initial conditions, so differences are purely due to the demon policy. Typical outcome: god consistently beats adaptive by ~5.5%; local reaches 95% of adaptive at $r/L = 0.09$ and matches it exactly once the sensing radius covers the full half-box.
 
 ### Technology
 
@@ -149,10 +169,10 @@ All runs share identical initial conditions, so differences are purely due to th
 | File | Lines | Responsibility |
 | ---- | ----- | -------------- |
 | `index.html` | ~280 | HTML/CSS, controls, main loop, sweep termination logic |
-| `sim.js` | ~310 | Physics engine: init, collisions, walls, stepping, steady-state detection |
-| `policy.js` | ~60 | Demon door policies (none, classical-adaptive, god, local) |
+| `sim.js` | ~370 | Physics engine: init, collisions, walls, paired-swap queues, steady-state detection |
+| `policy.js` | ~80 | Demon door policies (none, classical-adaptive, god, local) |
 | `render.js` | ~300 | All canvas rendering, FPS tracking, stats bar |
-| `sweep.js` | ~190 | r-sweep orchestration, state save/restore, CSV export |
+| `sweep.js` | ~230 | r-sweep orchestration, state save/restore (incl. swap queues), CSV export |
 
 All files use classic `<script src>` tags (not ES modules) so they share the global scope. Load order: sim → policy → render → sweep → inline controls.
 
