@@ -44,23 +44,9 @@ function renderSim() {
   const maxSpeed = 3*Math.sqrt(T);
   const r = Math.max(particleRadius*SCALE, 1.5);
 
-  // Queued particles have vx=vy=0 (pinned); look up their saved velocity
-  // so they render at their true speed instead of ice-blue.
-  const savedByIdx = new Map();
-  if (typeof swapQueueLeft !== 'undefined') {
-    for (const e of swapQueueLeft) savedByIdx.set(e.idx, e);
-  }
-  if (typeof swapQueueRight !== 'undefined') {
-    for (const e of swapQueueRight) savedByIdx.set(e.idx, e);
-  }
-
   for (let i=0;i<N;i++) {
-    let sx = vx[i], sy = vy[i];
-    if (queuedState && queuedState[i]) {
-      const entry = savedByIdx.get(i);
-      if (entry) { sx = entry.savedVx; sy = entry.savedVy; }
-    }
-    const speed = Math.sqrt(sx*sx + sy*sy);
+    if (queuedState && queuedState[i]) continue; // hide particles parked at the door queues
+    const speed = Math.sqrt(vx[i]*vx[i] + vy[i]*vy[i]);
     simCtx.beginPath();
     simCtx.arc(x[i]*SCALE_X, (BOX_H-y[i])*SCALE_Y, r, 0, 2*Math.PI);
     simCtx.fillStyle = speedColor(speed, maxSpeed);
@@ -83,6 +69,16 @@ function renderSim() {
 
   simCtx.strokeStyle='#445'; simCtx.lineWidth=1;
   simCtx.strokeRect(0,0,SIM_CANVAS_W,SIM_CANVAS_H);
+
+  if (typeof swapQueueLeft !== 'undefined' && typeof swapQueueRight !== 'undefined') {
+    simCtx.font='10px Courier New';
+    simCtx.fillStyle='#ffb4a2';
+    simCtx.textAlign='right';
+    simCtx.fillText(`L→R queue: ${swapQueueLeft.length}`, partPx-6, doorTopPx-6);
+    simCtx.fillStyle='#90caf9';
+    simCtx.textAlign='left';
+    simCtx.fillText(`R→L queue: ${swapQueueRight.length}`, partPx+6, doorTopPx-6);
+  }
 }
 
 // ============================================================
