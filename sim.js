@@ -2,10 +2,10 @@
 // Constants
 // ============================================================
 const BOX_W = 100, BOX_H = 100, PARTITION_X = BOX_W / 2;
-const SIM_CANVAS_W = 600, SIM_CANVAS_H = 740;
+const SIM_CANVAS_W = 600, SIM_CANVAS_H = 600;
 const SCALE_X = SIM_CANVAS_W / BOX_W;
 const SCALE_Y = SIM_CANVAS_H / BOX_H;
-const SCALE = Math.min(SCALE_X, SCALE_Y);
+const SCALE = SCALE_X;
 
 // ============================================================
 // Simulation state
@@ -219,14 +219,22 @@ function checkSteadyState() {
   }
   if (oldIdx < 0) return;
 
-  const oldDT = dtHistory[oldIdx][1];
+  // Measure the full range of ΔT over the lookback window — a curve that
+  // rose to a peak and fell back to match the old value would otherwise
+  // register as "steady" with just the endpoint comparison.
+  let minDT = Infinity, maxDT = -Infinity;
+  for (let i = oldIdx; i < dtHistory.length; i++) {
+    const v = dtHistory[i][1];
+    if (v < minDT) minDT = v;
+    if (v > maxDT) maxDT = v;
+  }
+  const range = maxDT - minDT;
   const newDT = dtHistory[dtHistory.length-1][1];
-  const change = Math.abs(newDT - oldDT);
 
   const absPeak = Math.abs(peakDT);
   const nearZeroPeak = absPeak < STEADY_ABS_THRESH * 5;
-  const relOk = absPeak > 0 ? (change / absPeak) < STEADY_REL_THRESH : false;
-  const absOk = nearZeroPeak && Math.abs(newDT) < STEADY_ABS_THRESH && change < STEADY_ABS_THRESH;
+  const relOk = absPeak > 0 ? (range / absPeak) < STEADY_REL_THRESH : false;
+  const absOk = nearZeroPeak && Math.abs(newDT) < STEADY_ABS_THRESH && range < STEADY_ABS_THRESH;
 
   if (relOk || absOk) {
     isSteady = true;
@@ -326,10 +334,21 @@ function handleWalls() {
   }
 }
 
-const QUEUE_MAX_WAIT = 3;        // sim-seconds a lone candidate waits before release
-const QUEUE_MAX_IMBALANCE = 2;   // hard cap on how much longer one queue may be than the other
+const QUEUE_MAX_WAIT = 1;        // sim-seconds a lone candidate waits before release
+const QUEUE_MAX_IMBALANCE = 1;   // hard cap on how much longer one queue may be than the other
 
 function enqueueSwapCandidate(idx, onLeft) {
+  // Proactive imbalance guard: if this side's queue already outnumbers the
+  // other's, just reflect off the partition instead of piling up at the door.
+  // Prevents pinning bias when the policy is asymmetric (e.g. god, adaptive).
+  const thisLen = onLeft ? swapQueueLeft.length : swapQueueRight.length;
+  const otherLen = onLeft ? swapQueueRight.length : swapQueueLeft.length;
+  if (thisLen >= otherLen + QUEUE_MAX_IMBALANCE) {
+    if (onLeft) { x[idx] = PARTITION_X - particleRadius; vx[idx] = -Math.abs(vx[idx]); }
+    else        { x[idx] = PARTITION_X + particleRadius; vx[idx] = Math.abs(vx[idx]); }
+    return;
+  }
+
   // Save the particle's velocity before pinning
   const savedVxI = vx[idx];
   const savedVyI = vy[idx];
@@ -358,12 +377,14 @@ function attemptSwap() {
 
 function releaseQueuedParticle(entry, onLeft) {
   const i = entry.idx;
-  const epsilon = particleRadius + 0.1;
+  // Preserve original velocity (no non-physical reflection kick). Place the
+  // particle well inside its own side so it has to traverse before the next
+  // door interaction — gives collisions a chance to rethermalize it.
+  const backoff = 2 * particleRadius + 0.1;
   queuedState[i] = 0;
   doorCrossing[i] = 0;
-  // Put back just inside the original side, moving away from the partition
-  x[i] = onLeft ? PARTITION_X - epsilon : PARTITION_X + epsilon;
-  vx[i] = onLeft ? -Math.abs(entry.savedVx) : Math.abs(entry.savedVx);
+  x[i] = onLeft ? PARTITION_X - backoff : PARTITION_X + backoff;
+  vx[i] = entry.savedVx;
   vy[i] = entry.savedVy;
 }
 
